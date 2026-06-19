@@ -11,10 +11,11 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 16px;
-  height: 48px;
-  background: var(--toolbar-bg);
-  border-bottom: 1px solid var(--border-accent);
+  padding: 0 18px;
+  height: 52px;
+  background: linear-gradient(90deg, #0a4d8c 0%, #0b5cab 55%, #1565c0 100%);
+  border-bottom: 2px solid #08406f;
+  box-shadow: 0 2px 6px rgba(8, 40, 80, 0.25);
   flex-shrink: 0;
   z-index: 100;
 
@@ -26,15 +27,25 @@
 
   &__logo {
     font-size: 20px;
-    color: var(--accent-primary);
+    color: #ffffff;
   }
 
   &__title {
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 700;
     letter-spacing: 2px;
-    color: var(--text-primary);
+    color: #ffffff;
     text-transform: uppercase;
+  }
+
+  &__version {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 10px;
+    padding: 1px 7px;
   }
 
   &__actions {
@@ -44,23 +55,24 @@
   }
 
   &__btn {
-    padding: 5px 14px;
+    padding: 6px 14px;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 1px;
-    background: var(--surface-2);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: #ffffff;
     border-radius: 3px;
     cursor: pointer;
     transition: all 0.15s;
     text-transform: uppercase;
 
-    &:hover, &.active { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
-    &--edit  { border-color: var(--accent-secondary); color: var(--accent-secondary); }
+    &:hover, &.active { background: #ffffff; border-color: #ffffff; color: var(--accent-primary); }
     &--save  { background: var(--accent-success); border-color: var(--accent-success); color: #fff; }
-    &--cancel { border-color: var(--error-color); color: var(--error-color); }
-    &:disabled { opacity: 0.4; cursor: not-allowed; }
+    &--save:hover { background: #ffffff; color: var(--accent-success); }
+    &--cancel { background: rgba(255, 80, 80, 0.18); border-color: rgba(255, 180, 180, 0.6); }
+    &--cancel:hover { background: #ffffff; color: var(--error-color); }
+    &:disabled { opacity: 0.45; cursor: not-allowed; }
   }
 
   &__status {
@@ -69,11 +81,11 @@
     gap: 12px;
     font-size: 11px;
     font-family: 'Courier New', monospace;
-    color: var(--text-secondary);
+    color: rgba(255, 255, 255, 0.85);
   }
 
-  &__loading { color: var(--accent-primary); animation: blink 1s step-end infinite; }
-  &__coords  { color: var(--accent-secondary); }
+  &__loading { color: #ffffff; animation: blink 1s step-end infinite; }
+  &__coords  { color: #cfe4ff; }
 }
 
 .map-container {
@@ -95,6 +107,7 @@
   width: 220px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border-color);
+  box-shadow: 2px 0 10px rgba(16, 38, 66, 0.07);
   overflow-y: auto;
   z-index: 50;
 
@@ -141,7 +154,8 @@
 .dep-detail {
   background: var(--panel-bg);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 6px;
+  box-shadow: 0 6px 22px rgba(16, 38, 66, 0.14);
   padding: 14px;
 
   &__header {
@@ -228,10 +242,11 @@
   transform: translateX(-50%);
   background: var(--panel-bg);
   border: 1px solid var(--border-color);
+  box-shadow: 0 4px 14px rgba(16, 38, 66, 0.12);
   padding: 8px 16px;
   font-size: 11px;
   color: var(--text-secondary);
-  border-radius: 3px;
+  border-radius: 4px;
   pointer-events: none;
   letter-spacing: 0.5px;
 }

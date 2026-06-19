@@ -52,12 +52,27 @@ public class TerrainEngine {
     ) {}
 
     /**
-     * Full terrain analysis over the deployment area.
-     * Samples a grid of DTED points and computes statistics.
+     * Full terrain analysis using the default planar slope threshold (5°).
+     * Retained for callers (e.g. recompute) that do not supply a threshold.
      */
     public TerrainResult analyse(double centerLat, double centerLon,
                                   double frontageM, double depthM,
                                   double headingDeg) {
+        return analyse(centerLat, centerLon, frontageM, depthM, headingDeg,
+                       PLANAR_SLOPE_THRESHOLD);
+    }
+
+    /**
+     * Full terrain analysis over the deployment area.
+     * Samples a grid of DTED points and computes statistics.
+     *
+     * @param slopeThresholdDeg slope (degrees) below which terrain is treated as
+     *                          planar → an ellipse is drawn; at or above it the
+     *                          terrain is non-planar → an adaptive Bézier is used.
+     */
+    public TerrainResult analyse(double centerLat, double centerLon,
+                                  double frontageM, double depthM,
+                                  double headingDeg, double slopeThresholdDeg) {
         double halfF = frontageM / 2.0;
         double halfD = depthM    / 2.0;
         double sampleDistM = gisProperties.getTerrain().getElevationSampleDistanceM();
@@ -107,10 +122,13 @@ public class TerrainEngine {
             .mapToDouble(SlopeSample::slopeDegrees).summaryStatistics();
 
         double roughness = computeRoughness(elevGrid);
-        boolean isPlanar = slopeStats.getAverage() < PLANAR_SLOPE_THRESHOLD
+        // Core rule: flat terrain (mean slope below the requested threshold and
+        // low roughness) → ellipse; otherwise → adaptive Bézier.
+        double planarSlopeLimit = slopeThresholdDeg > 0 ? slopeThresholdDeg : PLANAR_SLOPE_THRESHOLD;
+        boolean isPlanar = slopeStats.getAverage() < planarSlopeLimit
                         && roughness < PLANAR_ROUGHNESS_THRESHOLD;
         double suitability = computeSuitabilityScore(slopeStats.getAverage(), roughness,
-            gisProperties.getTerrain().getSlopeThresholdDefault());
+            planarSlopeLimit);
 
         return new TerrainResult(
             elevStats.getAverage(),

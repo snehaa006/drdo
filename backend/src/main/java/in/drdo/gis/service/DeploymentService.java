@@ -31,6 +31,7 @@ public class DeploymentService {
     private final ControlPointRepository cpRepo;
     private final TerrainEngine terrainEngine;
     private final GeometryEngine geometryEngine;
+    private final BezierEngine bezierEngine;
     private final GeoJsonWriter geoJsonWriter;
     private final GisProperties gisProperties;
 
@@ -64,9 +65,12 @@ public class DeploymentService {
 
         // 3 - terrain analysis
         double heading = req.getHeadingDegrees() != null ? req.getHeadingDegrees() : 0.0;
+        double slopeThreshold = req.getSlopeThresholdDegrees() != null
+            ? req.getSlopeThresholdDegrees()
+            : gisProperties.getTerrain().getSlopeThresholdDefault();
         TerrainEngine.TerrainResult tr = terrainEngine.analyse(
             req.getCenterLat(), req.getCenterLon(),
-            req.getFrontageM(), req.getDepthM(), heading);
+            req.getFrontageM(), req.getDepthM(), heading, slopeThreshold);
 
         TerrainAnalysis ta = TerrainAnalysis.builder()
             .deployment(deployment)
@@ -191,9 +195,8 @@ public class DeploymentService {
         DeploymentGeometry dg = geomRepo.findByDeploymentId(d.getId()).orElse(new DeploymentGeometry());
         dg.setDeployment(d);
 
-        in.drdo.gis.engine.BezierEngine be = new in.drdo.gis.engine.BezierEngine();
         int steps = gisProperties.getGeometry().getBezierSmoothingSteps();
-        Polygon poly = be.buildBezierPolygon(savedCps, steps);
+        Polygon poly = bezierEngine.buildBezierPolygon(savedCps, steps);
         String geojson = geoJsonWriter.toFeatureJson(poly,
             java.util.Map.of("deploymentUid", uid, "type", "BEZIER_CUSTOM"));
         dg.setGeom(poly);

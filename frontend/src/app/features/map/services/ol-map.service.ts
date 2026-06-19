@@ -6,6 +6,7 @@ import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import GeoTIFF from 'ol/source/GeoTIFF';
 import WebGLTileLayer from 'ol/layer/WebGLTile';
+import Graticule from 'ol/layer/Graticule';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import { GeoJSON } from 'ol/format';
 import Feature from 'ol/Feature';
@@ -33,6 +34,7 @@ export interface ControlPointMoveEvent {
 export class OlMapService {
   private map!: Map;
   private geotiffLayer!: WebGLTileLayer;
+  private graticuleLayer!: Graticule;
   private deploymentLayer!: VectorLayer<VectorSource>;
   private controlPointLayer!: VectorLayer<VectorSource>;
   private modifyInteraction!: Modify;
@@ -63,9 +65,18 @@ export class OlMapService {
       zIndex: 20
     });
 
+    // Offline coordinate reference grid — always visible so the map never
+    // appears blank when no GeoTIFF imagery is mounted.
+    this.graticuleLayer = new Graticule({
+      strokeStyle: new Stroke({ color: 'rgba(11, 92, 171, 0.35)', width: 1 }),
+      showLabels: true,
+      wrapX: false,
+      zIndex: 1
+    });
+
     this.map = new Map({
       target: targetId,
-      layers: [this.deploymentLayer, this.controlPointLayer],
+      layers: [this.graticuleLayer, this.deploymentLayer, this.controlPointLayer],
       view
     });
 
@@ -77,13 +88,42 @@ export class OlMapService {
     });
   }
 
-  loadOfflineGeoTiff(url: string): void {
+  /**
+   * Loads an offline GeoTIFF as the base imagery layer.
+   * The raster is streamed from the backend (no internet / cloud tiles).
+   * On success the view is fitted to the imagery extent.
+   *
+   * @param url        backend URL serving the .tif bytes
+   * @param onError    optional callback invoked if the raster cannot be decoded
+   */
+  loadOfflineGeoTiff(url: string, onError?: (msg: string) => void): void {
     if (this.geotiffLayer) {
       this.map.removeLayer(this.geotiffLayer);
     }
-    const source = new GeoTIFF({ sources: [{ url }] });
+    // `normalize: true` lets OpenLayers render arbitrary band ranges (8/16-bit)
+    // without a hand-written style; `convertToRGB: 'auto'` handles colour TIFFs.
+    const source = new GeoTIFF({
+      sources: [{ url }],
+      normalize: true,
+      convertToRGB: 'auto'
+    });
+
+    source.on('change', () => {
+      if (source.getState() === 'error') {
+        const err = source.getError();
+        const msg = err?.message ?? 'Failed to decode GeoTIFF';
+        console.error('GeoTIFF load error:', msg);
+        onError?.(msg);
+      }
+    });
+
     this.geotiffLayer = new WebGLTileLayer({ source, zIndex: 0 });
     this.map.getLayers().insertAt(0, this.geotiffLayer);
+
+    // Fit the view to the imagery once its metadata resolves.
+    source.getView()
+      .then(cfg => { if (cfg.extent) this.map.getView().fit(cfg.extent, { duration: 500 }); })
+      .catch(() => { /* extent unavailable — keep current view */ });
   }
 
   renderDeploymentGeometry(geojson: string): void {
@@ -155,8 +195,8 @@ export class OlMapService {
 
   private deploymentStyle(): Style {
     return new Style({
-      fill: new Fill({ color: 'rgba(30, 144, 255, 0.18)' }),
-      stroke: new Stroke({ color: '#1E90FF', width: 2, lineDash: [6, 3] })
+      fill: new Fill({ color: 'rgba(11, 92, 171, 0.16)' }),
+      stroke: new Stroke({ color: '#0b5cab', width: 2.5, lineDash: [6, 3] })
     });
   }
 
@@ -164,8 +204,8 @@ export class OlMapService {
     return new Style({
       image: new CircleStyle({
         radius: 7,
-        fill: new Fill({ color: '#00BFFF' }),
-        stroke: new Stroke({ color: '#fff', width: 2 })
+        fill: new Fill({ color: '#1976d2' }),
+        stroke: new Stroke({ color: '#ffffff', width: 2 })
       })
     });
   }

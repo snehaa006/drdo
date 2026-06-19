@@ -1,3 +1,8 @@
-# Angular cache
+# Angular cache & build output
 frontend/.angular/
 .angular/
+frontend/dist/
+frontend/node_modules/.cli-ngcc/
+
+# Java build output
+backend/target/

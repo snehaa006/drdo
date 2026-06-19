@@ -9,10 +9,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.file.Files;
+import in.drdo.gis.exception.TerrainDataException;
+
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -57,5 +61,47 @@ public class TileManagementService {
     public List<TerrainTile> getTilesForBbox(double minLat, double minLon,
                                               double maxLat, double maxLon) {
         return tileRepo.findTilesInBbox(minLat, minLon, maxLat, maxLon);
+    }
+
+    /**
+     * Lists every offline GeoTIFF available on disk together with its geo-bounds,
+     * so the frontend can load it as a base map layer.
+     */
+    public List<Map<String, Object>> listAvailableGeoTiffs() {
+        return geoTiffReader.discoverTiffFiles().stream()
+            .map(fp -> {
+                try {
+                    GeoTiffReader.GeoTiffMetadata m = geoTiffReader.readMetadata(fp);
+                    Map<String, Object> info = new LinkedHashMap<>();
+                    info.put("name", Path.of(fp).getFileName().toString());
+                    info.put("crs", m.crsCode());
+                    info.put("minLon", m.minLon());
+                    info.put("minLat", m.minLat());
+                    info.put("maxLon", m.maxLon());
+                    info.put("maxLat", m.maxLat());
+                    info.put("width", m.width());
+                    info.put("height", m.height());
+                    info.put("bandCount", m.bandCount());
+                    return info;
+                } catch (Exception ex) {
+                    log.warn("Skipping unreadable GeoTIFF {}: {}", fp, ex.getMessage());
+                    return null;
+                }
+            })
+            .filter(Objects::nonNull)
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * Resolves a GeoTIFF by its file name against the discovered allow-list.
+     * Matching by file-name only (never a raw path) prevents directory traversal.
+     */
+    public Path resolveGeoTiff(String name) {
+        String safe = Path.of(name).getFileName().toString();
+        return geoTiffReader.discoverTiffFiles().stream()
+            .filter(fp -> Path.of(fp).getFileName().toString().equals(safe))
+            .map(Path::of)
+            .findFirst()
+            .orElseThrow(() -> new TerrainDataException("GeoTIFF not found: " + safe));
     }
 }
