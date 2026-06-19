@@ -86,11 +86,15 @@ public class GeometryEngine {
             double angle = 2.0 * Math.PI * i / cpCount;
             double ex = (fM / 2.0) * Math.cos(angle);
             double ey = (dM / 2.0) * Math.sin(angle);
-            // Rotate by heading
+            // Rotate by heading → rx is the East component, ry the North component.
             double rx = ex * Math.cos(rotRad) - ey * Math.sin(rotRad);
             double ry = ex * Math.sin(rotRad) + ey * Math.cos(rotRad);
-            // Apply terrain distortion factor for nearest octant
-            int octant = (int) Math.round(angle / (Math.PI / 4)) % 8;
+            // Pick the terrain factor for this anchor's TRUE compass direction.
+            // directionalSlopeFactors is indexed by bearing from North, clockwise
+            // (0=N, 1=NE, 2=E, ...), so derive the bearing from (East, North) and
+            // round to the nearest octant. This also correctly accounts for heading.
+            double bearingDeg = (Math.toDegrees(Math.atan2(rx, ry)) + 360.0) % 360.0;
+            int octant = (int) Math.round(bearingDeg / 45.0) % 8;
             double factor = (terrainFactors != null && octant < terrainFactors.length)
                 ? terrainFactors[octant] : 1.0;
             double scaledRx = rx * factor;

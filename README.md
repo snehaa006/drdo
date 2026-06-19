@@ -54,11 +54,18 @@ data/terrain/dted/n28/e077.dt1   # covers lat 28-29, lon 77-78
 data/terrain/dted/n29/e077.dt1
 ```
 
-**GeoTIFF files** — any projection supported; auto-discovered on startup:
+**GeoTIFF files** — auto-discovered on startup and served to the map as the
+offline base layer:
 ```
 data/terrain/geotiff/india_region.tif
 data/terrain/geotiff/delhi_highres.tiff
 ```
+> For direct in-browser rendering by OpenLayers, GeoTIFFs should be
+> **Web-Mercator (EPSG:3857)**, ideally Cloud-Optimized (COG). The map view
+> uses EPSG:3857; OpenLayers' GeoTIFF source does not client-reproject rasters,
+> so a 4326/UTM TIFF will load but may not align with the 3857 view. When no
+> GeoTIFF is mounted, the map falls back to an offline coordinate graticule so
+> it is never blank.
 
 ## API Reference
 
@@ -75,6 +82,8 @@ data/terrain/geotiff/delhi_highres.tiff
 | PUT    | /v1/geometry/deployment/{uid}/edit | Apply geometry edit |
 | POST   | /v1/tiles/scan | Scan & register GeoTIFF tiles |
 | GET    | /v1/tiles/bbox | List tiles in bounding box |
+| GET    | /v1/tiles/geotiff | List available offline GeoTIFF base maps (+ bounds) |
+| GET    | /v1/tiles/geotiff/{name} | Stream a GeoTIFF raster for the map base layer |
 
 ## System Flow
 
@@ -84,6 +93,7 @@ User clicks map
   → Backend loads nearby DTED tiles
   → TerrainEngine samples 11×11 elevation grid
   → Classifies terrain: planar / non-planar
+       (mean slope < user slopeThreshold AND low roughness → planar)
   → If planar  → BezierEngine generates ellipse
   → If non-planar → directional slope factors computed
                   → anchor points distorted proportionally

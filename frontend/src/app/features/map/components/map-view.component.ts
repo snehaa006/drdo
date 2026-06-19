@@ -4,6 +4,7 @@ import { Subject, takeUntil } from "rxjs";
 import { OlMapService } from "../services/ol-map.service";
 import { MapStateService } from "../../../core/services/map-state.service";
 import { DeploymentApiService } from "../../../core/services/deployment-api.service";
+import { TileApiService } from "../../../core/services/tile-api.service";
 import {
   DeploymentRequest,
   DeploymentResponse,
@@ -33,7 +34,8 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   constructor(
     private mapService:  OlMapService,
     private stateService: MapStateService,
-    private apiService:  DeploymentApiService
+    private apiService:  DeploymentApiService,
+    private tileService: TileApiService
   ) {}
 
   ngOnInit(): void {
@@ -53,6 +55,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.mapService.initMap("ol-map-container");
+    this.loadBaseImagery();
 
     this.mapService.mapClick$
       .pipe(takeUntil(this.destroy$))
@@ -64,6 +67,26 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
           this.activeDeployment = null;
           this.errorMessage = null;
         }
+      });
+  }
+
+  /**
+   * Discovers offline GeoTIFF base maps and renders the first one.
+   * If none are mounted, the coordinate graticule remains as the base —
+   * the map is never blank.
+   */
+  private loadBaseImagery(): void {
+    this.tileService.listGeoTiffs()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: tiffs => {
+          if (tiffs.length > 0) {
+            const url = this.tileService.geoTiffUrl(tiffs[0].name);
+            this.mapService.loadOfflineGeoTiff(url, msg =>
+              this.errorMessage = "Base imagery could not be rendered: " + msg);
+          }
+        },
+        error: () => { /* offline-first: graticule base remains, no error surfaced */ }
       });
   }
 
