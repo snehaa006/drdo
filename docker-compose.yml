@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: drdo_postgres
+    environment:
+      POSTGRES_DB:       drdo_gis
+      POSTGRES_USER:     drdo_user
+      POSTGRES_PASSWORD: drdo_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - drdo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drdo_user -d drdo_gis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: drdo_backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/drdo_gis
+      SPRING_DATASOURCE_USERNAME: drdo_user
+      SPRING_DATASOURCE_PASSWORD: drdo_secret
+      GIS_TERRAIN_DTED_BASE_PATH:    /data/terrain/dted
+      GIS_TERRAIN_GEOTIFF_BASE_PATH: /data/terrain/geotiff
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data:ro
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: drdo_frontend
+    depends_on:
+      - backend
+    ports:
+      - "4200:80"
+    restart: unless-stopped
+
+volumes:
+  drdo_pgdata:

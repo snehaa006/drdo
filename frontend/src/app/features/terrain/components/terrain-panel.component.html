@@ -1,0 +1,16 @@
+<div class="terrain-panel" *ngIf="terrain">
+  <div class="terrain-panel__header">TERRAIN ANALYSIS</div>
+  <div class="terrain-panel__suitability" [class]="suitabilityClass">
+    <span class="label">SUITABILITY</span>
+    <span class="score">{{ (terrain.suitabilityScore * 100) | number:'1.0-0' }}%</span>
+    <span class="tag">{{ terrain.isPlanar ? 'PLANAR' : 'NON-PLANAR' }}</span>
+  </div>
+  <table class="terrain-table">
+    <tr><td>Mean Elevation</td><td>{{ terrain.meanElevationM | number:'1.0-1' }} m</td></tr>
+    <tr><td>Elevation Range</td><td>{{ terrain.minElevationM | number:'1.0-0' }} – {{ terrain.maxElevationM | number:'1.0-0' }} m</td></tr>
+    <tr><td>Mean Slope</td><td>{{ terrain.meanSlopeDegrees | number:'1.1-1' }}°</td></tr>
+    <tr><td>Max Slope</td><td>{{ terrain.maxSlopeDegrees | number:'1.1-1' }}°</td></tr>
+    <tr><td>Roughness</td><td>{{ terrain.terrainRoughness | number:'1.2-3' }}</td></tr>
+    <tr><td>Samples</td><td>{{ terrain.sampleCount }}</td></tr>
+  </table>
+</div>

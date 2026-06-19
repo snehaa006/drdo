@@ -1,0 +1,60 @@
+/* ==========================================
+   DRDO GIS — Enterprise GIS Design System
+   Bluish-white engineering-focused theme
+   ========================================== */
+
+:root {
+  /* Core palette */
+  --app-bg:         #0a0d14;
+  --toolbar-bg:     #0d1220;
+  --sidebar-bg:     rgba(13, 18, 32, 0.96);
+  --panel-bg:       rgba(15, 22, 40, 0.95);
+  --surface-2:      #131b2e;
+  --surface-hover:  rgba(30, 144, 255, 0.06);
+  --surface-active: rgba(30, 144, 255, 0.12);
+  --map-bg:         #090d18;
+  --input-bg:       #0d1627;
+
+  /* Borders */
+  --border-color:   rgba(30, 144, 255, 0.2);
+  --border-accent:  rgba(30, 144, 255, 0.35);
+  --border-subtle:  rgba(255, 255, 255, 0.05);
+
+  /* Typography */
+  --text-primary:   #e0e8f5;
+  --text-secondary: #7a8fa8;
+  --font-ui:        'Inter', 'Roboto', 'Segoe UI', sans-serif;
+
+  /* Accent */
+  --accent-primary:   #1E90FF;
+  --accent-secondary: #00BFFF;
+  --accent-success:   #00c864;
+  --error-color:      #ff4444;
+  --error-bg:         rgba(255, 68, 68, 0.08);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* OpenLayers overrides */
+.ol-viewport { cursor: crosshair !important; }
+.ol-control button {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  border-radius: 3px !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--app-bg); }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }

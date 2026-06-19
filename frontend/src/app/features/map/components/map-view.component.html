@@ -1,0 +1,118 @@
+
+<div class="map-wrapper">
+
+  <!-- ═══ TOOLBAR ═══════════════════════════════════════════════════════ -->
+  <div class="toolbar">
+    <div class="toolbar__brand">
+      <span class="toolbar__logo">◈</span>
+      <span class="toolbar__title">DRDO GIS — DEPLOYMENT GEOMETRY SYSTEM</span>
+      <span class="toolbar__version">v1.0</span>
+    </div>
+    <div class="toolbar__actions">
+      <button class="toolbar__btn" (click)="showForm = !showForm; activeDeployment = null"
+              [class.active]="showForm">
+        + NEW DEPLOYMENT
+      </button>
+      <button class="toolbar__btn toolbar__btn--edit"
+              *ngIf="activeDeployment && !editingControlPoints && activeDeployment.geometry?.geometryType !== 'ELLIPSE'"
+              (click)="enableEditing()">
+        ✎ EDIT GEOMETRY
+      </button>
+      <button class="toolbar__btn toolbar__btn--save"
+              *ngIf="editingControlPoints"
+              (click)="saveControlPoints()" [disabled]="loading">
+        ✔ SAVE EDITS
+      </button>
+      <button class="toolbar__btn toolbar__btn--cancel"
+              *ngIf="editingControlPoints"
+              (click)="cancelEditing()">
+        ✕ CANCEL
+      </button>
+    </div>
+    <div class="toolbar__status">
+      <span *ngIf="loading" class="toolbar__loading">● COMPUTING</span>
+      <span *ngIf="editingControlPoints" class="toolbar__editing">⊙ EDITING MODE</span>
+      <span *ngIf="selectedLat !== null && !loading" class="toolbar__coords">
+        {{ selectedLat | number:"1.4-4" }}°N  {{ selectedLon | number:"1.4-4" }}°E
+      </span>
+    </div>
+  </div>
+
+  <!-- ═══ MAP BODY ══════════════════════════════════════════════════════ -->
+  <div class="map-container">
+    <div id="ol-map-container" class="ol-map"></div>
+
+    <!-- Left sidebar — deployment list -->
+    <div class="sidebar sidebar--left">
+      <app-deployment-list
+        [deployments]="deployments"
+        [activeUid]="activeDeployment?.deploymentUid ?? null"
+        (selected)="selectDeployment($event)"
+        (deleted)="deleteDeployment($event)">
+      </app-deployment-list>
+    </div>
+
+    <!-- Right panel — new deployment form -->
+    <div class="side-panel side-panel--right" *ngIf="showForm">
+      <app-deployment-form
+        [centerLat]="selectedLat"
+        [centerLon]="selectedLon"
+        [loading]="loading"
+        (submit)="onDeploymentSubmit($event)"
+        (cancel)="showForm = false">
+      </app-deployment-form>
+    </div>
+
+    <!-- Right panel — active deployment details -->
+    <div class="side-panel side-panel--right" *ngIf="activeDeployment && !showForm">
+      <div class="dep-detail">
+        <div class="dep-detail__header">
+          <span class="dep-detail__name" [title]="activeDeployment.name">{{ activeDeployment.name }}</span>
+          <span class="status-badge status-{{ activeDeployment.status.toLowerCase() }}">
+            {{ activeDeployment.status }}
+          </span>
+        </div>
+        <div class="dep-detail__uid">UID: {{ activeDeployment.deploymentUid }}</div>
+
+        <div class="dep-detail__params" *ngIf="activeDeployment.parameters">
+          <div class="param-row"><span>Frontage</span><span>{{ activeDeployment.parameters.frontageM }} m</span></div>
+          <div class="param-row"><span>Depth</span><span>{{ activeDeployment.parameters.depthM }} m</span></div>
+          <div class="param-row"><span>Slope Threshold</span><span>{{ activeDeployment.parameters.slopeThresholdDegrees }}°</span></div>
+          <div class="param-row"><span>Heading</span><span>{{ activeDeployment.parameters.headingDegrees ?? 0 }}°</span></div>
+          <div class="param-row"><span>Geometry Type</span><span>{{ activeDeployment.geometry?.geometryType }}</span></div>
+          <div class="param-row"><span>Geometry Version</span><span>v{{ activeDeployment.geometry?.version }}</span></div>
+          <div class="param-row">
+            <span>Validity</span>
+            <span [class.valid]="activeDeployment.geometry?.isValid"
+                  [class.invalid]="!activeDeployment.geometry?.isValid">
+              {{ activeDeployment.geometry?.isValid ? "✔ VALID" : "✖ INVALID" }}
+            </span>
+          </div>
+        </div>
+
+        <app-terrain-panel [terrain]="activeDeployment.terrainAnalysis ?? null"></app-terrain-panel>
+
+        <div class="dep-detail__actions">
+          <button class="btn btn--secondary btn--sm" (click)="activeDeployment = null">✕ Close</button>
+          <button class="btn btn--danger btn--sm"   (click)="deleteDeployment(activeDeployment.deploymentUid)">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error toast -->
+    <div class="toast toast--error" *ngIf="errorMessage">
+      ⚠ {{ errorMessage }}
+      <button class="toast__close" (click)="errorMessage = null">✕</button>
+    </div>
+
+    <!-- Map hint overlay -->
+    <div class="map-hint" *ngIf="!showForm && !activeDeployment && !editingControlPoints">
+      Click on map to select a deployment location
+    </div>
+
+    <!-- Edit mode overlay hint -->
+    <div class="map-hint map-hint--editing" *ngIf="editingControlPoints">
+      Drag control points to reshape geometry — click SAVE EDITS when done
+    </div>
+  </div>
+</div>

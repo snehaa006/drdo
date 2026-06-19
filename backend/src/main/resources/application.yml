@@ -1,0 +1,74 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: drdo-gis-deployment-system
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/drdo_gis
+    username: drdo_user
+    password: drdo_secret
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.spatial.dialect.postgis.PostgisPG10Dialect
+        format_sql: true
+        default_schema: public
+        jdbc:
+          lob:
+            non_contextual_creation: true
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: true
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+gis:
+  terrain:
+    dted-base-path: /data/terrain/dted
+    geotiff-base-path: /data/terrain/geotiff
+    tile-cache-size: 100
+    slope-threshold-default: 15.0
+    elevation-sample-distance-m: 30.0
+
+  geometry:
+    bezier-smoothing-steps: 64
+    ellipse-segments: 72
+    control-point-count: 8
+    min-frontage-m: 10.0
+    max-frontage-m: 5000.0
+    min-depth-m: 5.0
+    max-depth-m: 2000.0
+
+  projection:
+    default-crs: EPSG:4326
+    utm-zone-auto-detect: true
+
+logging:
+  level:
+    in.drdo.gis: DEBUG
+    org.geotools: WARN
+    org.hibernate.SQL: WARN
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true

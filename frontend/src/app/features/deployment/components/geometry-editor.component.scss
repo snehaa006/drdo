@@ -1,0 +1,109 @@
+.geo-editor {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 10px;
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    color: var(--accent-primary);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+    text-transform: uppercase;
+  }
+
+  &__count {
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  &__scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+}
+
+.cp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+
+  th {
+    color: var(--text-secondary);
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    background: var(--panel-bg);
+  }
+
+  td {
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
+  }
+}
+
+.cp-idx {
+  color: var(--accent-secondary);
+  font-family: "Courier New", monospace;
+  font-weight: 700;
+  width: 20px;
+}
+
+.cp-input {
+  width: 90px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 2px 5px;
+  font-size: 10px;
+  font-family: "Courier New", monospace;
+  border-radius: 2px;
+  outline: none;
+  &:focus { border-color: var(--accent-primary); }
+}
+
+.btn {
+  padding: 5px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  text-transform: uppercase;
+  &--primary   { background: var(--accent-primary); color: #fff; }
+  &--secondary { background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-secondary); }
+  &--sm        { padding: 3px 10px; }
+  &:disabled   { opacity: 0.4; cursor: not-allowed; }
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

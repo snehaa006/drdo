@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="0010-create-frontage-config" author="drdo-gis">
+        <createTable tableName="frontage_config">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="config_key" type="VARCHAR(64)"><constraints nullable="false" unique="true"/></column>
+            <column name="min_frontage_m" type="DOUBLE PRECISION" defaultValueNumeric="10.0"/>
+            <column name="max_frontage_m" type="DOUBLE PRECISION" defaultValueNumeric="5000.0"/>
+            <column name="default_frontage_m" type="DOUBLE PRECISION" defaultValueNumeric="200.0"/>
+            <column name="step_size_m" type="DOUBLE PRECISION" defaultValueNumeric="10.0"/>
+            <column name="description" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0011-create-depth-config" author="drdo-gis">
+        <createTable tableName="depth_config">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="config_key" type="VARCHAR(64)"><constraints nullable="false" unique="true"/></column>
+            <column name="min_depth_m" type="DOUBLE PRECISION" defaultValueNumeric="5.0"/>
+            <column name="max_depth_m" type="DOUBLE PRECISION" defaultValueNumeric="2000.0"/>
+            <column name="default_depth_m" type="DOUBLE PRECISION" defaultValueNumeric="100.0"/>
+            <column name="step_size_m" type="DOUBLE PRECISION" defaultValueNumeric="5.0"/>
+            <column name="description" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0012-seed-default-configs" author="drdo-gis">
+        <insert tableName="threshold_config">
+            <column name="config_key" value="default"/>
+            <column name="slope_threshold_degrees" valueNumeric="15.0"/>
+            <column name="roughness_threshold" valueNumeric="0.3"/>
+            <column name="suitability_min_score" valueNumeric="0.5"/>
+            <column name="description" value="Default terrain threshold configuration"/>
+        </insert>
+        <insert tableName="frontage_config">
+            <column name="config_key" value="default"/>
+            <column name="min_frontage_m" valueNumeric="10.0"/>
+            <column name="max_frontage_m" valueNumeric="5000.0"/>
+            <column name="default_frontage_m" valueNumeric="200.0"/>
+            <column name="step_size_m" valueNumeric="10.0"/>
+            <column name="description" value="Default frontage configuration"/>
+        </insert>
+        <insert tableName="depth_config">
+            <column name="config_key" value="default"/>
+            <column name="min_depth_m" valueNumeric="5.0"/>
+            <column name="max_depth_m" valueNumeric="2000.0"/>
+            <column name="default_depth_m" valueNumeric="100.0"/>
+            <column name="step_size_m" valueNumeric="5.0"/>
+            <column name="description" value="Default depth configuration"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

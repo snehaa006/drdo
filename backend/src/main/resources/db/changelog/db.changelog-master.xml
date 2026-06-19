@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="0001-enable-postgis" author="drdo-gis">
+        <sql>CREATE EXTENSION IF NOT EXISTS postgis;</sql>
+        <sql>CREATE EXTENSION IF NOT EXISTS postgis_topology;</sql>
+    </changeSet>
+
+    <changeSet id="0002-create-terrain-tiles" author="drdo-gis">
+        <createTable tableName="terrain_tile">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="tile_key" type="VARCHAR(64)"><constraints nullable="false" unique="true"/></column>
+            <column name="file_path" type="VARCHAR(512)"><constraints nullable="false"/></column>
+            <column name="tile_type" type="VARCHAR(16)"><constraints nullable="false"/></column>
+            <column name="min_lat" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="max_lat" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="min_lon" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="max_lon" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="resolution_arc_sec" type="INTEGER"/>
+            <column name="crs_code" type="VARCHAR(32)"/>
+            <column name="loaded_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+        <createIndex tableName="terrain_tile" indexName="idx_terrain_tile_bounds">
+            <column name="min_lat"/><column name="max_lat"/>
+            <column name="min_lon"/><column name="max_lon"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0003-create-threshold-config" author="drdo-gis">
+        <createTable tableName="threshold_config">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="config_key" type="VARCHAR(64)"><constraints nullable="false" unique="true"/></column>
+            <column name="slope_threshold_degrees" type="DOUBLE PRECISION" defaultValueNumeric="15.0"/>
+            <column name="roughness_threshold" type="DOUBLE PRECISION" defaultValueNumeric="0.3"/>
+            <column name="suitability_min_score" type="DOUBLE PRECISION" defaultValueNumeric="0.5"/>
+            <column name="description" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0004-create-deployments" author="drdo-gis">
+        <createTable tableName="deployment">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="deployment_uid" type="VARCHAR(36)"><constraints nullable="false" unique="true"/></column>
+            <column name="name" type="VARCHAR(256)"/>
+            <column name="status" type="VARCHAR(32)" defaultValue="DRAFT"/>
+            <column name="center_lat" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="center_lon" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="center_geom" type="GEOMETRY(Point, 4326)"/>
+            <column name="heading_degrees" type="DOUBLE PRECISION"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="created_by" type="VARCHAR(128)"/>
+        </createTable>
+        <createIndex tableName="deployment" indexName="idx_deployment_uid">
+            <column name="deployment_uid"/>
+        </createIndex>
+        <sql>CREATE INDEX idx_deployment_center ON deployment USING GIST(center_geom);</sql>
+    </changeSet>
+
+    <changeSet id="0005-create-deployment-parameters" author="drdo-gis">
+        <createTable tableName="deployment_parameters">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="deployment_id" type="BIGINT"><constraints nullable="false"/></column>
+            <column name="frontage_m" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="depth_m" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="slope_threshold_degrees" type="DOUBLE PRECISION" defaultValueNumeric="15.0"/>
+            <column name="heading_degrees" type="DOUBLE PRECISION"/>
+            <column name="terrain_adaptive" type="BOOLEAN" defaultValueBoolean="true"/>
+            <column name="bezier_smoothing" type="BOOLEAN" defaultValueBoolean="true"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+        <addForeignKeyConstraint
+            constraintName="fk_dep_params_deployment"
+            baseTableName="deployment_parameters" baseColumnNames="deployment_id"
+            referencedTableName="deployment" referencedColumnNames="id"
+            onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="0006-create-terrain-analysis" author="drdo-gis">
+        <createTable tableName="terrain_analysis">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="deployment_id" type="BIGINT"><constraints nullable="false"/></column>
+            <column name="analysis_area" type="GEOMETRY(Polygon, 4326)"/>
+            <column name="mean_elevation_m" type="DOUBLE PRECISION"/>
+            <column name="min_elevation_m" type="DOUBLE PRECISION"/>
+            <column name="max_elevation_m" type="DOUBLE PRECISION"/>
+            <column name="mean_slope_degrees" type="DOUBLE PRECISION"/>
+            <column name="max_slope_degrees" type="DOUBLE PRECISION"/>
+            <column name="terrain_roughness" type="DOUBLE PRECISION"/>
+            <column name="suitability_score" type="DOUBLE PRECISION"/>
+            <column name="is_planar" type="BOOLEAN"/>
+            <column name="sample_count" type="INTEGER"/>
+            <column name="computed_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+        <addForeignKeyConstraint
+            constraintName="fk_terrain_analysis_deployment"
+            baseTableName="terrain_analysis" baseColumnNames="deployment_id"
+            referencedTableName="deployment" referencedColumnNames="id"
+            onDelete="CASCADE"/>
+        <sql>CREATE INDEX idx_terrain_analysis_area ON terrain_analysis USING GIST(analysis_area);</sql>
+    </changeSet>
+
+    <changeSet id="0007-create-slope-analysis" author="drdo-gis">
+        <createTable tableName="slope_analysis">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="terrain_analysis_id" type="BIGINT"><constraints nullable="false"/></column>
+            <column name="sample_point" type="GEOMETRY(Point, 4326)"/>
+            <column name="elevation_m" type="DOUBLE PRECISION"/>
+            <column name="slope_degrees" type="DOUBLE PRECISION"/>
+            <column name="aspect_degrees" type="DOUBLE PRECISION"/>
+            <column name="slope_ns" type="DOUBLE PRECISION"/>
+            <column name="slope_ew" type="DOUBLE PRECISION"/>
+        </createTable>
+        <addForeignKeyConstraint
+            constraintName="fk_slope_terrain_analysis"
+            baseTableName="slope_analysis" baseColumnNames="terrain_analysis_id"
+            referencedTableName="terrain_analysis" referencedColumnNames="id"
+            onDelete="CASCADE"/>
+        <sql>CREATE INDEX idx_slope_analysis_point ON slope_analysis USING GIST(sample_point);</sql>
+    </changeSet>
+
+    <changeSet id="0008-create-deployment-geometry" author="drdo-gis">
+        <createTable tableName="deployment_geometry">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="deployment_id" type="BIGINT"><constraints nullable="false"/></column>
+            <column name="geometry_type" type="VARCHAR(32)"/>
+            <column name="geom" type="GEOMETRY(Polygon, 4326)"/>
+            <column name="geom_wkt" type="TEXT"/>
+            <column name="geojson" type="TEXT"/>
+            <column name="version" type="INTEGER" defaultValueNumeric="1"/>
+            <column name="is_valid" type="BOOLEAN" defaultValueBoolean="true"/>
+            <column name="validation_message" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+        <addForeignKeyConstraint
+            constraintName="fk_dep_geom_deployment"
+            baseTableName="deployment_geometry" baseColumnNames="deployment_id"
+            referencedTableName="deployment" referencedColumnNames="id"
+            onDelete="CASCADE"/>
+        <sql>CREATE INDEX idx_deployment_geometry ON deployment_geometry USING GIST(geom);</sql>
+    </changeSet>
+
+    <changeSet id="0009-create-control-points" author="drdo-gis">
+        <createTable tableName="control_point">
+            <column name="id" type="BIGSERIAL"><constraints primaryKey="true"/></column>
+            <column name="deployment_id" type="BIGINT"><constraints nullable="false"/></column>
+            <column name="point_index" type="INTEGER"><constraints nullable="false"/></column>
+            <column name="point_type" type="VARCHAR(32)"/>
+            <column name="lat" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="lon" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="geom" type="GEOMETRY(Point, 4326)"/>
+            <column name="handle_lat_1" type="DOUBLE PRECISION"/>
+            <column name="handle_lon_1" type="DOUBLE PRECISION"/>
+            <column name="handle_lat_2" type="DOUBLE PRECISION"/>
+            <column name="handle_lon_2" type="DOUBLE PRECISION"/>
+            <column name="is_locked" type="BOOLEAN" defaultValueBoolean="false"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()"/>
+        </createTable>
+        <addForeignKeyConstraint
+            constraintName="fk_control_point_deployment"
+            baseTableName="control_point" baseColumnNames="deployment_id"
+            referencedTableName="deployment" referencedColumnNames="id"
+            onDelete="CASCADE"/>
+        <sql>CREATE INDEX idx_control_point_geom ON control_point USING GIST(geom);</sql>
+    </changeSet>
+
+
+    <include file="classpath:db/changelog/db.changelog-002.xml"/>
+</databaseChangeLog>

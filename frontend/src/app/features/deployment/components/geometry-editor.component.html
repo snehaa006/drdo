@@ -1,0 +1,42 @@
+<div class="geo-editor">
+  <div class="geo-editor__header">
+    <span>CONTROL POINTS</span>
+    <span class="geo-editor__count">{{ editablePoints.length }} pts</span>
+  </div>
+
+  <div class="geo-editor__scroll">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Lat</th><th>Lon</th><th>Lock</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let cp of editablePoints; let i = index; trackBy: trackByIndex">
+          <td class="cp-idx">{{ cp.pointIndex }}</td>
+          <td>
+            <input class="cp-input" type="number" step="0.0001"
+              [value]="cp.lat"
+              (change)="updatePoint(i, 'lat', $any($event.target).value)" />
+          </td>
+          <td>
+            <input class="cp-input" type="number" step="0.0001"
+              [value]="cp.lon"
+              (change)="updatePoint(i, 'lon', $any($event.target).value)" />
+          </td>
+          <td>
+            <input type="checkbox" [(ngModel)]="cp.isLocked" />
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="geo-editor__actions">
+    <button class="btn btn--secondary btn--sm" (click)="cancel.emit()">Cancel</button>
+    <button class="btn btn--primary btn--sm" (click)="onSave()" [disabled]="loading">
+      <span *ngIf="!loading">Apply</span>
+      <span *ngIf="loading" class="spinner"></span>
+    </button>
+  </div>
+</div>

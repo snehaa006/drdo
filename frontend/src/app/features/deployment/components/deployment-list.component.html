@@ -1,0 +1,26 @@
+<div class="dep-list">
+  <div class="dep-list__header">
+    DEPLOYMENTS
+    <span class="dep-list__count">{{ deployments.length }}</span>
+  </div>
+  <div class="dep-list__empty" *ngIf="deployments.length === 0">
+    No deployments yet. Click map to create one.
+  </div>
+  <div class="dep-list__items">
+    <div
+      class="dep-item"
+      *ngFor="let d of deployments; trackBy: trackByUid"
+      [class.dep-item--active]="d.deploymentUid === activeUid"
+      (click)="selected.emit(d)">
+      <div class="dep-item__row">
+        <span class="dep-item__name">{{ d.name }}</span>
+        <span class="dep-item__status status-{{ d.status.toLowerCase() }}">{{ d.status }}</span>
+      </div>
+      <div class="dep-item__meta">
+        <span>{{ d.centerLat | number:"1.4-4" }}°N {{ d.centerLon | number:"1.4-4" }}°E</span>
+        <span class="dep-item__geom">{{ d.geometry?.geometryType }}</span>
+      </div>
+      <button class="dep-item__delete" (click)="$event.stopPropagation(); deleted.emit(d.deploymentUid)" title="Delete">✕</button>
+    </div>
+  </div>
+</div>
