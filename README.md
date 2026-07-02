@@ -67,6 +67,16 @@ data/terrain/geotiff/delhi_highres.tiff
 > GeoTIFF is mounted, the map falls back to an offline coordinate graticule so
 > it is never blank.
 
+A synthetic placeholder base map, `data/terrain/geotiff/offline_sample_basemap.tif`,
+ships in this repo so the pipeline has something to render out of the box —
+it covers the same lon 75–79° / lat 28–31° extent as the sample DTED tiles
+above and is **not real imagery**. Regenerate it (or make another one for a
+different extent) fully offline, no GDAL required, with:
+```bash
+python3 scripts/generate_sample_geotiff.py --lon-min 75 --lon-max 79 --lat-min 28 --lat-max 31
+```
+Replace it with real offline aerial/satellite GeoTIFFs for production use.
+
 ## API Reference
 
 | Method | Endpoint | Description |
@@ -116,6 +126,7 @@ User clicks map
 | JTS buffer(0) repair | Industry-standard polygon repair strategy |
 | PostGIS spatial indexes | Sub-millisecond spatial queries at scale |
 | Liquibase migrations | Reproducible schema across environments |
+| `/v1/tiles/geotiff/{name}` serves `ResourceRegion` + honours `Range` | OpenLayers' GeoTIFF source (geotiff.js) fetches rasters in byte-range chunks and errors on a plain 200; Spring MVC (unlike WebFlux) does not add Range support for a controller returning `Resource` automatically, so it's implemented explicitly |
 
 ## Tech Stack
 
