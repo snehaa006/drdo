@@ -1,4 +1,10 @@
-version: "3.9"
+# DRDO GIS — development / online compose file (builds images from source).
+# For the OFFLINE on-site deployment (no network), use docker-compose.offline.yml
+# together with the pre-built image bundle. See OFFLINE_SETUP.md.
+#
+# All host-specific paths are read from the .env file in this directory, so the
+# system can be pointed at DRDO's terrain data on-site WITHOUT editing any code
+# or this file. Edit .env only.
 
 services:
 
@@ -6,15 +12,15 @@ services:
     image: postgis/postgis:15-3.3
     container_name: drdo_postgres
     environment:
-      POSTGRES_DB:       drdo_gis
-      POSTGRES_USER:     drdo_user
-      POSTGRES_PASSWORD: drdo_secret
+      POSTGRES_DB:       ${POSTGRES_DB:-drdo_gis}
+      POSTGRES_USER:     ${POSTGRES_USER:-drdo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drdo_secret}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - drdo_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U drdo_user -d drdo_gis"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-drdo_user} -d ${POSTGRES_DB:-drdo_gis}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -23,31 +29,38 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: drdo-gis-backend:latest
     container_name: drdo_backend
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/drdo_gis
-      SPRING_DATASOURCE_USERNAME: drdo_user
-      SPRING_DATASOURCE_PASSWORD: drdo_secret
+      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/${POSTGRES_DB:-drdo_gis}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-drdo_user}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-drdo_secret}
       GIS_TERRAIN_DTED_BASE_PATH:    /data/terrain/dted
       GIS_TERRAIN_GEOTIFF_BASE_PATH: /data/terrain/geotiff
+      # Which GeoTIFF in the geotiff folder is the map base layer (see .env).
+      GIS_TERRAIN_DEFAULT_BASE_MAP:  ${DEFAULT_BASE_MAP:-}
     ports:
-      - "8080:8080"
+      - "${BACKEND_PORT:-8080}:8080"
     volumes:
-      - ./data:/data:ro
+      # DRDO's DTED and GeoTIFF directories are mounted read-only. Point these at
+      # the real data on-site by editing DTED_HOST_DIR / GEOTIFF_HOST_DIR in .env.
+      - ${DTED_HOST_DIR:-./data/terrain/dted}:/data/terrain/dted:ro
+      - ${GEOTIFF_HOST_DIR:-./data/terrain/geotiff}:/data/terrain/geotiff:ro
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: drdo-gis-frontend:latest
     container_name: drdo_frontend
     depends_on:
       - backend
     ports:
-      - "4200:80"
+      - "${FRONTEND_PORT:-4200}:80"
     restart: unless-stopped
 
 volumes:

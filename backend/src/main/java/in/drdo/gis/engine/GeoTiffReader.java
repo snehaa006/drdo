@@ -70,7 +70,9 @@ public class GeoTiffReader {
         try {
             GridCoverage2D coverage = loadCoverage(filePath);
             double[] result = new double[coverage.getNumSampleDimensions()];
-            coverage.evaluate(new org.geotools.geometry.DirectPosition2D(lon, lat), result);
+            coverage.evaluate(
+                (org.opengis.geometry.DirectPosition) new org.geotools.geometry.DirectPosition2D(lon, lat),
+                result);
             return result;
         } catch (Exception ex) {
             log.warn("Could not sample GeoTIFF {} at {}/{}: {}", filePath, lat, lon, ex.getMessage());

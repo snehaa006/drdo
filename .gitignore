@@ -1,8 +1,19 @@
-# Angular cache & build output
+# ── Dependencies (never commit) ──────────────────────────────
+node_modules/
+frontend/node_modules/
+
+# ── Build output ─────────────────────────────────────────────
+backend/target/
+frontend/dist/
 frontend/.angular/
 .angular/
-frontend/dist/
-frontend/node_modules/.cli-ngcc/
 
-# Java build output
-backend/target/
+# ── Offline deployment bundle — regenerate with scripts/make_offline_bundle.sh ──
+# (too large for GitHub / are build artifacts)
+deploy/images/*.tar.gz
+deploy/manual/backend.jar
+deploy/manual/frontend-dist/
+
+# ── OS / editor cruft ────────────────────────────────────────
+.DS_Store
+*.log

@@ -4,12 +4,27 @@
     <button class="btn-icon" (click)="cancel.emit()" title="Close">✕</button>
   </div>
 
-  <div class="dep-form__coords" *ngIf="centerLat !== null">
-    <span class="label">LOCATION</span>
-    <span class="value">{{ centerLat | number:'1.5-5' }}°N, {{ centerLon | number:'1.5-5' }}°E</span>
-  </div>
-
   <form [formGroup]="form" (ngSubmit)="onSubmit()">
+    <div class="form-row">
+      <label>Latitude (°N)</label>
+      <input type="number" formControlName="centerLat" step="0.0001" min="-90" max="90"
+             placeholder="e.g. 28.6139" />
+      <span class="err" *ngIf="form.get('centerLat')?.invalid && form.get('centerLat')?.touched">
+        enter −90 to 90
+      </span>
+    </div>
+
+    <div class="form-row">
+      <label>Longitude (°E)</label>
+      <input type="number" formControlName="centerLon" step="0.0001" min="-180" max="180"
+             placeholder="e.g. 77.2090" />
+      <span class="err" *ngIf="form.get('centerLon')?.invalid && form.get('centerLon')?.touched">
+        enter −180 to 180
+      </span>
+    </div>
+
+    <div class="dep-form__hint">Type coordinates above, or click anywhere on the map to set the location.</div>
+
     <div class="form-row">
       <label>Deployment Name</label>
       <input type="text" formControlName="name" placeholder="Optional" />
@@ -53,7 +68,7 @@
 
     <div class="dep-form__actions">
       <button type="button" class="btn btn--secondary" (click)="cancel.emit()">Cancel</button>
-      <button type="submit" class="btn btn--primary" [disabled]="form.invalid || centerLat === null || loading">
+      <button type="submit" class="btn btn--primary" [disabled]="form.invalid || loading">
         <span *ngIf="!loading">Compute Geometry</span>
         <span *ngIf="loading" class="spinner"></span>
       </button>

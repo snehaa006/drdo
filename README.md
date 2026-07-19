@@ -17,16 +17,23 @@ drdo-gis/
 
 ## Quick Start
 
+> **Deploying on-site with no internet?** See **[OFFLINE_SETUP.md](OFFLINE_SETUP.md)** —
+> it uses the pre-built image bundle in `deploy/` so nothing is downloaded on the
+> target machine. All data paths are configured in **`.env`** (no code changes).
+
 ### Prerequisites
 - Docker 24+ & Docker Compose 2+
 - Offline DTED/GeoTIFF terrain files mounted at `./data/`
 
 ### Run
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 - Frontend: http://localhost:4200
 - Backend API: http://localhost:8080/api/v1
+
+All host-specific settings (terrain data folders, base-map file, ports, DB
+credentials) live in **`.env`** and can be changed without touching any code.
 
 ### Development (without Docker)
 
@@ -57,25 +64,28 @@ data/terrain/dted/n29/e077.dt1
 **GeoTIFF files** — auto-discovered on startup and served to the map as the
 offline base layer:
 ```
-data/terrain/geotiff/india_region.tif
-data/terrain/geotiff/delhi_highres.tiff
+data/terrain/geotiff/india_basemap.tif      # shipped default (real India map)
+data/terrain/geotiff/delhi_highres.tiff     # add DRDO's own imagery here
 ```
+The GeoTIFF shown as the base layer is chosen by the **`GIS_TERRAIN_DEFAULT_BASE_MAP`**
+setting (`DEFAULT_BASE_MAP` in `.env`); set it to DRDO's own file name to swap the
+base map without any code change.
+
 > For direct in-browser rendering by OpenLayers, GeoTIFFs should be
 > **Web-Mercator (EPSG:3857)**, ideally Cloud-Optimized (COG). The map view
 > uses EPSG:3857; OpenLayers' GeoTIFF source does not client-reproject rasters,
-> so a 4326/UTM TIFF will load but may not align with the 3857 view. When no
-> GeoTIFF is mounted, the map falls back to an offline coordinate graticule so
-> it is never blank.
+> so a 4326/UTM TIFF will load but may not align with the 3857 view. Reproject
+> one with `gdalwarp -t_srs EPSG:3857 -of COG in.tif out.tif`. When no GeoTIFF is
+> mounted, the map falls back to an offline coordinate graticule so it is never blank.
 
-A synthetic placeholder base map, `data/terrain/geotiff/offline_sample_basemap.tif`,
-ships in this repo so the pipeline has something to render out of the box —
-it covers the same lon 75–79° / lat 28–31° extent as the sample DTED tiles
-above and is **not real imagery**. Regenerate it (or make another one for a
-different extent) fully offline, no GDAL required, with:
+A real **India base map**, `data/terrain/geotiff/india_basemap.tif` (public-domain
+Natural Earth relief, reprojected to EPSG:3857, covering 68–98°E / 6–38°N), ships
+so the map is recognizable out of the box. Replace it with DRDO's real
+aerial/satellite GeoTIFFs for production use. A synthetic placeholder can also be
+generated fully offline (no GDAL required) with:
 ```bash
 python3 scripts/generate_sample_geotiff.py --lon-min 75 --lon-max 79 --lat-min 28 --lat-max 31
 ```
-Replace it with real offline aerial/satellite GeoTIFFs for production use.
 
 ## API Reference
 

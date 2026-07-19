@@ -32,6 +32,13 @@
     .value { font-family: 'Courier New', monospace; }
   }
 
+  &__hint {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin: 2px 0 12px;
+    font-style: italic;
+  }
+
   &__actions {
     display: flex;
     gap: 8px;

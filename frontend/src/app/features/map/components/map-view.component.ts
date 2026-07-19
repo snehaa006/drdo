@@ -102,6 +102,9 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
           this.activeDeployment = d;
           this.deployments = [...this.deployments, d];
           if (d.geometry?.geojson) this.mapService.renderDeploymentGeometry(d.geometry.geojson);
+          // Bring the new deployment into view (important when coordinates were
+          // typed manually rather than picked on the map).
+          this.mapService.panToCoord(d.centerLat, d.centerLon, 13);
           this.renderControlPoints(d);
         },
         error: err => {

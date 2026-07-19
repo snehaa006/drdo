@@ -68,7 +68,7 @@ public class TileManagementService {
      * so the frontend can load it as a base map layer.
      */
     public List<Map<String, Object>> listAvailableGeoTiffs() {
-        return geoTiffReader.discoverTiffFiles().stream()
+        List<Map<String, Object>> list = geoTiffReader.discoverTiffFiles().stream()
             .map(fp -> {
                 try {
                     GeoTiffReader.GeoTiffMetadata m = geoTiffReader.readMetadata(fp);
@@ -90,6 +90,15 @@ public class TileManagementService {
             })
             .filter(Objects::nonNull)
             .collect(java.util.stream.Collectors.toList());
+
+        // The configured default base map (if present) is returned first so the
+        // frontend, which loads the first entry, uses it as the base layer.
+        String preferred = gisProperties.getTerrain().getDefaultBaseMap();
+        if (preferred != null && !preferred.isBlank()) {
+            list.sort(java.util.Comparator.comparing(
+                info -> preferred.equals(info.get("name")) ? 0 : 1));
+        }
+        return list;
     }
 
     /**

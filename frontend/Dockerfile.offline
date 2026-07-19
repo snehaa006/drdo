@@ -1,0 +1,6 @@
+# Offline frontend image — packages the PRE-BUILT Angular dist (no npm / no network).
+# Build the dist first with:  npm install && npm run build -- --configuration production
+FROM nginx:alpine
+COPY dist/drdo-gis-frontend /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

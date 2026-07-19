@@ -38,7 +38,7 @@ class BezierEngineTest {
         double[] lats = {28.602, 28.600, 28.598, 28.600};
         double[] lons = {77.198, 77.202, 77.198, 77.194};
         double[][] handles = engine.generateSmoothHandles(lats, lons, 0.4);
-        assertThat(handles).hasSize(4);
+        assertThat(handles).hasNumberOfRows(4);
         for (double[] h : handles) assertThat(h).hasSize(4);
     }
 

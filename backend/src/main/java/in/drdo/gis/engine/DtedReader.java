@@ -13,8 +13,11 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * Reads DTED Level 0/1/2 (.dt0/.dt1/.dt2) terrain elevation files.
@@ -33,6 +36,10 @@ public class DtedReader {
 
     private final GisProperties gisProperties;
     private final TerrainTileRepository terrainTileRepository;
+
+    /** Lazily-built index of DTED files by 1° cell key ("lat_lon"), keyed on each
+     *  file's own UHL header origin — so it works for ANY folder layout / casing. */
+    private volatile Map<String, String> dtedIndex;
 
     /**
      * Returns the elevation in metres for the given WGS84 coordinate.
@@ -79,35 +86,99 @@ public class DtedReader {
     private Optional<TerrainTile> discoverTileFromFilesystem(double lat, double lon) {
         int latBase = (int) Math.floor(lat);
         int lonBase = (int) Math.floor(lon);
-        String latDir  = (latBase >= 0 ? "n" : "s") + String.format("%02d", Math.abs(latBase));
-        String lonFile = (lonBase >= 0 ? "e" : "w") + String.format("%03d", Math.abs(lonBase));
         String basePath = gisProperties.getTerrain().getDtedBasePath();
 
-        for (String ext : new String[]{".dt1", ".dt0", ".dt2", ".DT1", ".DT0"}) {
+        // Fast path: the documented sample layout  <base>/{n|s}NN/{e|w}EEE.dtX
+        String latDir  = (latBase >= 0 ? "n" : "s") + String.format("%02d", Math.abs(latBase));
+        String lonFile = (lonBase >= 0 ? "e" : "w") + String.format("%03d", Math.abs(lonBase));
+        for (String ext : new String[]{".dt1", ".dt0", ".dt2", ".DT1", ".DT0", ".DT2"}) {
             Path candidate = Path.of(basePath, latDir, lonFile + ext);
             if (Files.exists(candidate)) {
-                TerrainTile.TileType type = ext.toLowerCase().contains("dt1")
-                    ? TerrainTile.TileType.DTED1
-                    : ext.toLowerCase().contains("dt2")
-                        ? TerrainTile.TileType.DTED2
-                        : TerrainTile.TileType.DTED0;
-                TerrainTile tile = TerrainTile.builder()
-                    .tileKey(latDir + "_" + lonFile)
-                    .filePath(candidate.toString())
-                    .tileType(type)
-                    .minLat((double) latBase)
-                    .maxLat((double) (latBase + 1))
-                    .minLon((double) lonBase)
-                    .maxLon((double) (lonBase + 1))
-                    .resolutionArcSec(type == TerrainTile.TileType.DTED1 ? 3
-                                    : type == TerrainTile.TileType.DTED2 ? 1 : 30)
-                    .crsCode("EPSG:4326")
-                    .build();
-                terrainTileRepository.save(tile);
-                return Optional.of(tile);
+                return Optional.of(registerTile(candidate, latBase, lonBase));
             }
         }
+
+        // Robust path: locate the tile by each DTED file's own UHL header origin,
+        // so ANY folder layout or file-name casing DRDO uses is handled (e.g. the
+        // standard <lon>/<lat>.dt1, upper-case names, or a single flat folder).
+        String fp = dtedFileIndex().get(latBase + "_" + lonBase);
+        if (fp != null) {
+            return Optional.of(registerTile(Path.of(fp), latBase, lonBase));
+        }
         return Optional.empty();
+    }
+
+    /** Builds a TerrainTile for a discovered file and persists it to the cache. */
+    private TerrainTile registerTile(Path file, int latBase, int lonBase) {
+        String lower = file.getFileName().toString().toLowerCase();
+        TerrainTile.TileType type = lower.endsWith(".dt2") ? TerrainTile.TileType.DTED2
+                                  : lower.endsWith(".dt0") ? TerrainTile.TileType.DTED0
+                                  : TerrainTile.TileType.DTED1;
+        TerrainTile tile = TerrainTile.builder()
+            .tileKey(latBase + "_" + lonBase)
+            .filePath(file.toString())
+            .tileType(type)
+            .minLat((double) latBase)
+            .maxLat((double) (latBase + 1))
+            .minLon((double) lonBase)
+            .maxLon((double) (lonBase + 1))
+            .resolutionArcSec(type == TerrainTile.TileType.DTED1 ? 3
+                            : type == TerrainTile.TileType.DTED2 ? 1 : 30)
+            .crsCode("EPSG:4326")
+            .build();
+        terrainTileRepository.save(tile);
+        return tile;
+    }
+
+    /** Lazily indexes every DTED file under the base path by the 1° cell its UHL
+     *  header declares. Built once, then reused (a DB tile cache fronts this). */
+    private Map<String, String> dtedFileIndex() {
+        Map<String, String> idx = dtedIndex;
+        if (idx == null) {
+            synchronized (this) {
+                idx = dtedIndex;
+                if (idx == null) {
+                    idx = buildDtedIndex();
+                    dtedIndex = idx;
+                }
+            }
+        }
+        return idx;
+    }
+
+    private Map<String, String> buildDtedIndex() {
+        Map<String, String> idx = new HashMap<>();
+        Path base = Path.of(gisProperties.getTerrain().getDtedBasePath());
+        if (!Files.isDirectory(base)) return idx;
+        try (Stream<Path> walk = Files.walk(base)) {
+            walk.filter(Files::isRegularFile)
+                .filter(p -> {
+                    String n = p.getFileName().toString().toLowerCase();
+                    return n.endsWith(".dt0") || n.endsWith(".dt1") || n.endsWith(".dt2");
+                })
+                .forEach(p -> {
+                    int[] cell = cellFromHeader(p);
+                    if (cell != null) idx.putIfAbsent(cell[0] + "_" + cell[1], p.toString());
+                });
+        } catch (IOException ex) {
+            log.warn("DTED index scan failed under {}: {}", base, ex.getMessage());
+        }
+        log.info("Indexed {} DTED tile(s) by header origin under {}", idx.size(), base);
+        return idx;
+    }
+
+    /** Reads a DTED file's UHL header and returns its origin cell {latBase, lonBase}. */
+    private int[] cellFromHeader(Path file) {
+        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+            byte[] uhl = new byte[UHL_SIZE];
+            if (raf.read(uhl) < 20) return null;
+            double originLon = parseDtedCoord(uhl, 4, 8);   // DLON
+            double originLat = parseDtedCoord(uhl, 12, 8);  // DLAT
+            return new int[]{ (int) Math.floor(originLat), (int) Math.floor(originLon) };
+        } catch (Exception ex) {
+            log.warn("Could not read DTED header {}: {}", file, ex.getMessage());
+            return null;
+        }
     }
 
     private double readElevationFromTile(TerrainTile tile, double lat, double lon) {
