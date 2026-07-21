@@ -1,9 +1,9 @@
 # DRDO GIS — On-Site Runbook
 ### Setup · Configuration · Testing · Every Error and Its Fix
 
-The single document to follow on the DRDO machine (offline). No Docker, no Python
-— only **Java + Spring Boot** (backend), **Angular** (frontend), and
-**PostgreSQL** (you manage it in pgAdmin).
+The single document to follow on the DRDO machine (offline). **No Docker, no Python,
+no Node, no Maven at runtime** — the app ships prebuilt as one jar. On the machine
+you need only **Java** and **PostgreSQL** (you manage it in pgAdmin).
 
 Read Sections 1–5 to get it running. Section 6 tests the workflow, Section 7 edge
 cases, and **Section 8 is the master error list** — find your symptom, apply the fix.
@@ -14,34 +14,37 @@ cases, and **Section 8 is the master error list** — find your symptom, apply t
 
 | Path | Purpose |
 |------|---------|
-| `backend/` | Spring Boot API — build with Maven, run with Java. |
-| `frontend/` | Angular 15 app — run with `ng serve`. |
-| `backend/src/main/resources/application.yml` | Backend config: DB + terrain paths. |
+| `deploy/manual/backend.jar` | **The whole app** (API + web UI) in one file — run with Java. |
+| `deploy/manual/run.bat` / `run.sh` | Start scripts — double-click `run.bat` on Windows. |
+| `deploy/manual/application.properties` | Editable DB settings (no rebuild needed). |
 | `data/terrain/geotiff/india_basemap.tif` | Real India base map (replaceable). |
 | `data/terrain/dted/` | Sample DTED (replace with DRDO's `.dt1` files). |
+| `backend/` , `frontend/` | Source — only needed to *rebuild* the jar (OFFLINE_SETUP §8). |
 
-**On the machine you need:** Java 17 (JDK), Maven 3, Node.js 18+ with npm, and
-PostgreSQL 15 with the PostGIS 3.3 extension. See **OFFLINE_SETUP.md §1** for how
-to get the Maven/npm libraries onto an air-gapped machine.
+**On the machine you need only two things:**
+- **Java 17+** (JDK or JRE) — check with `java -version`.
+- **PostgreSQL with the PostGIS extension** — the one you already open in pgAdmin.
+
+Nothing is built or downloaded on this machine. (Maven, Node and the `~/.m2` /
+`node_modules` libraries are only for rebuilding the jar — see Section 9.)
 
 ---
 
-## 2. Configuration — `application.yml`
+## 2. Configuration — `deploy/manual/application.properties`
 
-Everything the backend needs is in `backend/src/main/resources/application.yml`.
-The values you may change:
+The start scripts read `deploy/manual/application.properties` on every launch, so
+you change settings **without rebuilding anything**. The values you may change:
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/drdo_gis   # host:port/dbname — match pgAdmin
-    username: drdo_user
-    password: drdo_secret
-gis:
-  terrain:
-    dted-base-path: ../data/terrain/dted             # folder with DRDO's .dt1 files
-    geotiff-base-path: ../data/terrain/geotiff        # folder with the base-map .tif
-    default-base-map: india_basemap.tif               # which .tif to show as the map
+```properties
+# Database — must match the database + role you create in pgAdmin (Section 3)
+spring.datasource.url=jdbc:postgresql://localhost:5432/drdo_gis
+spring.datasource.username=drdo_user
+spring.datasource.password=drdo_secret
+
+# Terrain (optional — the scripts already point these at this project's data/ folder)
+# gis.terrain.dted-base-path=C:/drdo/terrain/dted
+# gis.terrain.geotiff-base-path=C:/drdo/terrain/geotiff
+# gis.terrain.default-base-map=india_basemap.tif
 ```
 
 **Decision guide:**
@@ -49,15 +52,16 @@ gis:
 - **Database** — the `url` / `username` / `password` must match the database and
   role you create in pgAdmin (Section 3). Defaults are `drdo_gis` /
   `drdo_user` / `drdo_secret`.
-- **DTED** — drop DRDO's `.dt1` files into `data/terrain/dted/` (any layout), or
-  set `dted-base-path` to the folder where they already are. Layout / casing don't
-  matter — the reader uses each file's header. Windows: use forward slashes,
-  e.g. `C:/drdo/dted`.
+- **DTED** — drop DRDO's `.dt1` files into `data/terrain/dted/` (any layout), or set
+  `gis.terrain.dted-base-path` to the folder where they already are (or append it on
+  the command line: `run.bat --gis.terrain.dted-base-path=C:/drdo/dted`). Layout /
+  casing don't matter — the reader uses each file's header. Windows: forward slashes.
 - **Base map** — to use DRDO's imagery, put their `.tif` in `data/terrain/geotiff/`
-  and set `default-base-map: <their-file>.tif`. It must be **EPSG:3857** (see §8-F).
+  and set `gis.terrain.default-base-map=<their-file>.tif`. It must be **EPSG:3857**
+  (see §8-D).
 
-Frontend port (4200) and backend port (8080): change only if busy — backend port
-via `--server.port=8081`, frontend via `ng serve --port 4201`.
+Backend/UI port is **8080** (both come from the one jar). Change only if busy:
+append `--server.port=8081` to the start script.
 
 ---
 
@@ -71,7 +75,9 @@ You already use pgAdmin, so PostgreSQL is running. Do all of this in pgAdmin's
 2. **Create the login role** — right-click *Login/Group Roles → Create*; name
    **`drdo_user`**, set password **`drdo_secret`** (Definition tab), enable
    *Can login?* (Privileges tab).
-3. **Enable PostGIS** — open the **Query Tool on the `drdo_gis` database** and run:
+3. **Enable PostGIS** — open the **Query Tool on the `drdo_gis` database** and run
+   the following **as the `postgres` superuser** (enabling an extension needs
+   superuser rights — do it once here so the app never has to):
    ```sql
    CREATE EXTENSION IF NOT EXISTS postgis;
    CREATE EXTENSION IF NOT EXISTS postgis_topology;
@@ -79,39 +85,35 @@ You already use pgAdmin, so PostgreSQL is running. Do all of this in pgAdmin's
    GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;
    ```
 
-**Do not create tables** — the backend creates them itself on first start.
+**Do not create tables** — the backend creates them itself on first start. Because
+PostGIS is already enabled here, the app's own `CREATE EXTENSION IF NOT EXISTS` step
+is a harmless no-op even though `drdo_user` is not a superuser.
 
 > **How the app talks to the database:** PostgreSQL runs as a background service
 > listening on a port (5432 by default — see pgAdmin *server → Properties →
-> Connection*). The backend connects to that port over JDBC using the settings in
-> `application.yml` — the same host/port/user/password pgAdmin uses. Nothing goes
-> through a terminal or through psql. If pgAdmin connects, the backend connects.
+> Connection*). The app connects to that port over JDBC using the settings in
+> `application.properties` — the same host/port/user/password pgAdmin uses. Nothing
+> goes through a terminal or through psql. If pgAdmin connects, the app connects.
 
 ---
 
-## 4. Run it (two terminals)
+## 4. Run it (one command)
 
-**Terminal 1 — backend** (from the `backend` folder):
-```bash
-cd backend
-mvn spring-boot:run
-```
-Starts on **http://localhost:8080** (API base `/api`). First run creates all
-tables. Leave it running.
+- **Windows:** double-click **`deploy\manual\run.bat`** (or run it in a terminal).
+- **Linux / macOS:** `./deploy/manual/run.sh`
 
-*(Alternative — build a JAR and run with plain Java, from inside `backend/`:)*
-```bash
-mvn clean package
-java -jar target/gis-deployment-system-1.0.0-SNAPSHOT.jar
-```
+Wait for **`Started GisDeploymentApplication`**, then open **http://localhost:8080**.
+The **same** jar serves the web UI (at `/`) and the API (at `/api/v1`) on port 8080.
+First run creates all tables in `drdo_gis`. Leave the window open; stop with `Ctrl+C`
+or by closing the window.
 
-**Terminal 2 — frontend** (from the `frontend` folder):
+*(Plain Java without the script, from the repo root:)*
 ```bash
-cd frontend
-npm install     # first time only
-npm start       # = ng serve, on port 4200
+java -jar deploy/manual/backend.jar \
+  --spring.config.additional-location=optional:file:deploy/manual/application.properties \
+  --gis.terrain.dted-base-path="$PWD/data/terrain/dted" \
+  --gis.terrain.geotiff-base-path="$PWD/data/terrain/geotiff"
 ```
-Open **http://localhost:4200**.
 
 ---
 
@@ -123,13 +125,13 @@ curl http://localhost:8080/api/v1/tiles/geotiff          # -> lists your base ma
 curl http://localhost:8080/api/v1/deployments            # -> [] (or your deployments)
 ```
 
-In the backend (Terminal 1) log, look for:
+In the run window's log, look for:
 ```
 Registered 1 new GeoTIFF tiles
 Indexed N DTED tile(s) by header origin ...   (N > 0 means DTED was found)
 Started GisDeploymentApplication ...
 ```
-Then open **http://localhost:4200** — you should see the India map (or DRDO's).
+Then open **http://localhost:8080** — you should see the India map (or DRDO's).
 
 ---
 
@@ -137,7 +139,7 @@ Then open **http://localhost:4200** — you should see the India map (or DRDO's)
 
 | # | Action | Expected result |
 |---|--------|-----------------|
-| 1 | Open http://localhost:4200 | Base map renders (not just a grid). |
+| 1 | Open http://localhost:8080 | Base map renders (not just a grid). |
 | 2 | Click **+ NEW DEPLOYMENT** | The **Deployment Parameters** panel opens with Latitude/Longitude fields. |
 | 3 | **Type** Latitude `28.6` and Longitude `77.2` | Compute Geometry button becomes enabled. |
 | 4 | Set Frontage `250`, Depth `125`, click **COMPUTE GEOMETRY** | Map pans to the point and draws a polygon; detail panel shows Geometry Type + **Terrain Analysis**. |
@@ -175,14 +177,15 @@ map** — are supported and interchangeable.
 
 ## 8. Error catalog — symptom → cause → fix
 
-### A. Backend build / start
+### A. Starting the app
 | Symptom | Cause → Fix |
 |---------|-------------|
-| `mvn: command not found` | Maven not installed / on PATH → install Maven 3, or build a JAR on a connected machine and run it with Java (OFFLINE_SETUP §1). |
-| `java: command not found` | Java 17 not installed / on PATH → install JDK 17. |
-| `UnsupportedClassVersionError` | Wrong Java version → needs **Java 17**. |
-| Maven can't download dependencies | No network / no mirror → populate `~/.m2` first (OFFLINE_SETUP §1). |
-| Port 8080 already in use | Add `--server.port=8081` (and use that port in the URLs). |
+| `java: command not found` | Java not installed / on PATH → install Java 17+ (Temurin). |
+| `UnsupportedClassVersionError` | Java too old → needs **Java 17 or newer**. |
+| `run.bat`/`run.sh` prints "'java' was not found" | Same as above — install Java 17+ and reopen the terminal so PATH updates. |
+| `no main manifest attribute` / jar won't run | `backend.jar` is truncated (partial copy/clone) → re-copy it; it should be ~82 MB. |
+| Port 8080 already in use | Append `--server.port=8081` to the start script, then use that port in the URLs. |
+| Nothing at http://localhost:8080 | You opened the wrong port (it's **8080**, not 4200), or the log hasn't reached `Started` yet — wait for that line. |
 
 ### B. Database
 | Symptom | Cause → Fix |
@@ -196,15 +199,14 @@ map** — are supported and interchangeable.
 | `psql` not recognised in the terminal | Expected — psql isn't on PATH. You don't need it; use pgAdmin's Query Tool. (Optional: OFFLINE_SETUP §2 shows the full psql path.) |
 | Want a clean/empty database | In pgAdmin, drop & recreate `drdo_gis` (⚠ deletes all saved deployments), then re-run §3.3 and restart the backend. |
 
-### C. Frontend
+### C. Web UI (served by the same jar on 8080)
 | Symptom | Cause → Fix |
 |---------|-------------|
-| `ng: command not found` | Angular CLI/Node missing → install Node 18+; `npm start` uses the local CLI once `npm install` has run. |
-| `npm install` fails offline | `node_modules`/registry not available → OFFLINE_SETUP §1 (internal mirror or carry `node_modules`). |
-| "Failed to load deployments" toast | Backend not reachable → confirm backend is UP (`curl .../actuator/health`) on 8080. |
-| Blank white page | Frontend didn't compile → check the `ng serve` terminal for errors; hard-refresh (Ctrl+Shift+R). |
+| "Failed to load deployments" toast | The app isn't fully up → confirm `curl http://localhost:8080/api/actuator/health` returns `UP`; wait for the `Started` line. |
+| Blank white page | Opened before startup finished, or stale cache → wait for `Started`, then hard-refresh (Ctrl+Shift+R). |
 | Map never loads / JS errors | Open browser console (F12), note the error; usually stale cache → hard-refresh. |
-| CORS error in console | Frontend served from an unexpected origin → run it via `ng serve` on 4200 (allowed origin), or add your origin to `WebConfig`. |
+| Page not found at `/` | You're on the wrong port — the UI is at **http://localhost:8080** (not 4200). |
+| *(Developers only)* running `ng serve` on 4200, CORS error | The dev server's origin `http://localhost:4200` is allowed in `WebConfig`; make sure the backend is running on 8080. |
 
 ### D. Base map / GeoTIFF
 | Symptom | Cause → Fix |
@@ -232,17 +234,20 @@ map** — are supported and interchangeable.
 ### G. Accessing from another PC on the LAN
 | Symptom | Cause → Fix |
 |---------|-------------|
-| Works on the server but not from another machine | Start the frontend with `ng serve --host 0.0.0.0` and browse to `http://<server-ip>:4200`. Ensure ports 4200/8080 are open in the firewall. |
+| Works on the server but not from another machine | The jar already listens on all interfaces — just browse to `http://<server-ip>:8080` from the other PC. Ensure port **8080** is open in the firewall. |
 
 ---
 
 ## 9. Useful commands
 
 ```bash
-# Backend health
+# Start the app (Windows: deploy\manual\run.bat)
+./deploy/manual/run.sh
+
+# App health
 curl http://localhost:8080/api/actuator/health
 
-# What base maps does the backend see?
+# What base maps does the app see?
 curl http://localhost:8080/api/v1/tiles/geotiff
 
 # Peek at the database — run in pgAdmin Query Tool on drdo_gis:
@@ -251,11 +256,8 @@ curl http://localhost:8080/api/v1/tiles/geotiff
 # Clear a stuck Liquibase lock — pgAdmin Query Tool on drdo_gis:
 #   DELETE FROM databasechangeloglock;
 
-# Rebuild the backend JAR
-cd backend && mvn clean package
-
-# Reinstall frontend deps
-cd frontend && npm install
+# Rebuild the jar (only if you changed the code; needs a network) — see OFFLINE_SETUP §8
+cd backend && mvn clean package && cp target/*.jar ../deploy/manual/backend.jar
 ```
 
 ---
@@ -264,13 +266,13 @@ cd frontend && npm install
 
 | Thing | Value |
 |-------|-------|
-| Web UI | http://localhost:4200 |
+| Web UI | **http://localhost:8080** |
 | API base | http://localhost:8080/api/v1 |
 | Health check | http://localhost:8080/api/actuator/health |
 | Swagger UI | http://localhost:8080/api/swagger-ui.html |
-| Config file | `backend/src/main/resources/application.yml` |
-| Start backend | `cd backend && mvn spring-boot:run` |
-| Start frontend | `cd frontend && npm start` |
+| Start the app | `deploy\manual\run.bat` (Windows) · `./deploy/manual/run.sh` (Linux/mac) |
+| Config file | `deploy/manual/application.properties` (DB settings) |
+| Needs on machine | Java 17+ and PostgreSQL+PostGIS — nothing else |
 | Database admin | pgAdmin (Query Tool) — no psql needed |
 | DTED: any layout? | Yes — files are matched by their header, not their name. |
 | Base map must be | EPSG:3857 GeoTIFF |

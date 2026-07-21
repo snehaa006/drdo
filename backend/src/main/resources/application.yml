@@ -1,7 +1,8 @@
 server:
   port: 8080
-  servlet:
-    context-path: /api
+  # No context-path: this single app serves BOTH the Angular UI (at http://localhost:8080/)
+  # and the REST API (at http://localhost:8080/api/v1/...). The "/api" prefix on the API is
+  # added in WebConfig (only to @RestController classes) so the UI can live at the root.
 
 spring:
   application:
@@ -84,9 +85,16 @@ logging:
     org.geotools: WARN
     org.hibernate.SQL: WARN
 
+# Keep the health check reachable at /api/actuator/health even though the app has no
+# context-path (the API "/api" prefix is applied to controllers only, not to actuator).
+management:
+  endpoints:
+    web:
+      base-path: /api/actuator
+
 springdoc:
   api-docs:
-    path: /api-docs
+    path: /api/api-docs
   swagger-ui:
-    path: /swagger-ui.html
+    path: /api/swagger-ui.html
     enabled: true
