@@ -32,17 +32,17 @@
 
     <div class="form-row">
       <label>Frontage (m)</label>
-      <input type="number" formControlName="frontageM" min="10" max="5000" />
+      <input type="number" formControlName="frontageM" min="1" />
       <span class="err" *ngIf="form.get('frontageM')?.invalid && form.get('frontageM')?.touched">
-        10–5000 m required
+        must be greater than 0
       </span>
     </div>
 
     <div class="form-row">
       <label>Depth (m)</label>
-      <input type="number" formControlName="depthM" min="5" max="2000" />
+      <input type="number" formControlName="depthM" min="1" />
       <span class="err" *ngIf="form.get('depthM')?.invalid && form.get('depthM')?.touched">
-        5–2000 m required
+        must be greater than 0
       </span>
     </div>
 

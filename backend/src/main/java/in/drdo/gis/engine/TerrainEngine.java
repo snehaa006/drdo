@@ -10,7 +10,6 @@ import org.locationtech.jts.geom.Polygon;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.DoubleSummaryStatistics;
 import java.util.List;
 
 /**
@@ -24,8 +23,17 @@ public class TerrainEngine {
 
     private static final double PLANAR_SLOPE_THRESHOLD = 5.0;   // degrees
     private static final double PLANAR_ROUGHNESS_THRESHOLD = 0.15;
-    private static final int    GRID_ROWS = 11;
-    private static final int    GRID_COLS = 11;
+    // Adaptive sampling grid bounds. The number of rows/cols is chosen per request so
+    // the spacing between samples stays close to the configured sample distance
+    // (~30 m ≈ DTED resolution), regardless of the deployment size — a large area is
+    // sampled just as finely as a small one instead of being stretched over a fixed
+    // 11×11 grid. GRID_MIN keeps small areas well-sampled (and leaves room for the
+    // 3×3 slope stencil); GRID_MAX bounds memory/compute for very large areas.
+    private static final int GRID_MIN = 11;
+    private static final int GRID_MAX = 501;
+    // Cap on how many samples are stored per deployment (the full dense grid drives the
+    // statistics; persisting every point of a large grid would flood the database).
+    private static final int PERSIST_PER_SIDE = 15;
 
     private final DtedReader dtedReader;
     private final GisProperties gisProperties;
@@ -76,6 +84,7 @@ public class TerrainEngine {
         double halfF = frontageM / 2.0;
         double halfD = depthM    / 2.0;
         double sampleDistM = gisProperties.getTerrain().getElevationSampleDistanceM();
+        if (sampleDistM <= 0) sampleDistM = 30.0;
 
         // Determine bbox in lat/lon
         double degLat = halfD  / 111320.0;
@@ -87,61 +96,94 @@ public class TerrainEngine {
         double minLon = centerLon - degLon - margin;
         double maxLon = centerLon + degLon + margin;
 
-        double[][] elevGrid = dtedReader.sampleGrid(minLat, minLon, maxLat, maxLon,
-                                                     GRID_ROWS, GRID_COLS);
-        double latStep = (maxLat - minLat) / (GRID_ROWS - 1);
-        double lonStep = (maxLon - minLon) / (GRID_COLS - 1);
-        double cellSizeM = GeoUtils.haversineM(minLat, minLon, minLat + latStep, minLon);
+        // Adaptive grid: pick enough rows/cols that the spacing between samples stays
+        // ~= sampleDistM in both directions, so terrain features aren't skipped over on
+        // large deployments. Clamped to [GRID_MIN, GRID_MAX].
+        int cols = clampGrid((int) Math.round(frontageM / sampleDistM) + 1);
+        int rows = clampGrid((int) Math.round(depthM    / sampleDistM) + 1);
+
+        double[][] elevGrid = dtedReader.sampleGrid(minLat, minLon, maxLat, maxLon, rows, cols);
+        double latStep = (maxLat - minLat) / (rows - 1);
+        double lonStep = (maxLon - minLon) / (cols - 1);
+        // Cell size in metres along each axis separately — the cells are not
+        // necessarily square, and using one size for both would skew the slope.
+        double cellSizeY = GeoUtils.haversineM(minLat, minLon, minLat + latStep, minLon);
+        double cellSizeX = GeoUtils.haversineM(minLat, minLon, minLat, minLon + lonStep);
+        if (cellSizeY <= 0) cellSizeY = sampleDistM;
+        if (cellSizeX <= 0) cellSizeX = sampleDistM;
+
+        // Persist only an evenly-spaced subset of the samples (see PERSIST_PER_SIDE).
+        int rowStride = Math.max(1, (rows - 2) / PERSIST_PER_SIDE);
+        int colStride = Math.max(1, (cols - 2) / PERSIST_PER_SIDE);
 
         List<SlopeSample> samples = new ArrayList<>();
+        double elevSum = 0, elevMin = Double.POSITIVE_INFINITY, elevMax = Double.NEGATIVE_INFINITY;
+        double slopeSum = 0, slopeMax = Double.NEGATIVE_INFINITY;
+        int n = 0;
 
-        for (int r = 1; r < GRID_ROWS - 1; r++) {
-            for (int c = 1; c < GRID_COLS - 1; c++) {
-                double lat = minLat + r * latStep;
-                double lon = minLon + c * lonStep;
+        for (int r = 1; r < rows - 1; r++) {
+            for (int c = 1; c < cols - 1; c++) {
                 double elev = elevGrid[r][c];
 
-                // Finite-difference slope computation (Horn's method)
+                // Finite-difference slope computation (Horn's method), corrected for
+                // non-square cells by using the per-axis cell size.
                 double dzdx = ((elevGrid[r-1][c+1] + 2*elevGrid[r][c+1] + elevGrid[r+1][c+1])
                              - (elevGrid[r-1][c-1] + 2*elevGrid[r][c-1] + elevGrid[r+1][c-1]))
-                             / (8.0 * cellSizeM);
+                             / (8.0 * cellSizeX);
                 double dzdy = ((elevGrid[r+1][c-1] + 2*elevGrid[r+1][c] + elevGrid[r+1][c+1])
                              - (elevGrid[r-1][c-1] + 2*elevGrid[r-1][c] + elevGrid[r-1][c+1]))
-                             / (8.0 * cellSizeM);
+                             / (8.0 * cellSizeY);
 
                 double slopeDeg  = Math.toDegrees(Math.atan(Math.sqrt(dzdx*dzdx + dzdy*dzdy)));
                 double aspectDeg = (Math.toDegrees(Math.atan2(dzdy, -dzdx)) + 360.0) % 360.0;
 
-                samples.add(new SlopeSample(lat, lon, elev, slopeDeg, aspectDeg, dzdy, dzdx));
+                // Statistics accumulate over EVERY interior point — the full dense grid.
+                elevSum += elev;
+                if (elev < elevMin) elevMin = elev;
+                if (elev > elevMax) elevMax = elev;
+                slopeSum += slopeDeg;
+                if (slopeDeg > slopeMax) slopeMax = slopeDeg;
+                n++;
+
+                // ...but only store a bounded, evenly-spaced subset for the record.
+                if ((r - 1) % rowStride == 0 && (c - 1) % colStride == 0) {
+                    double lat = minLat + r * latStep;
+                    double lon = minLon + c * lonStep;
+                    samples.add(new SlopeSample(lat, lon, elev, slopeDeg, aspectDeg, dzdy, dzdx));
+                }
             }
         }
 
-        DoubleSummaryStatistics elevStats = samples.stream()
-            .mapToDouble(SlopeSample::elevationM).summaryStatistics();
-        DoubleSummaryStatistics slopeStats = samples.stream()
-            .mapToDouble(SlopeSample::slopeDegrees).summaryStatistics();
+        double meanElev  = n > 0 ? elevSum  / n : 0.0;
+        double meanSlope = n > 0 ? slopeSum / n : 0.0;
+        if (n == 0) { elevMin = elevMax = slopeMax = 0.0; }
 
         double roughness = computeRoughness(elevGrid);
         // Core rule: flat terrain (mean slope below the requested threshold and
         // low roughness) → ellipse; otherwise → adaptive Bézier.
         double planarSlopeLimit = slopeThresholdDeg > 0 ? slopeThresholdDeg : PLANAR_SLOPE_THRESHOLD;
-        boolean isPlanar = slopeStats.getAverage() < planarSlopeLimit
+        boolean isPlanar = meanSlope < planarSlopeLimit
                         && roughness < PLANAR_ROUGHNESS_THRESHOLD;
-        double suitability = computeSuitabilityScore(slopeStats.getAverage(), roughness,
-            planarSlopeLimit);
+        double suitability = computeSuitabilityScore(meanSlope, roughness, planarSlopeLimit);
 
         return new TerrainResult(
-            elevStats.getAverage(),
-            elevStats.getMin(),
-            elevStats.getMax(),
-            slopeStats.getAverage(),
-            slopeStats.getMax(),
+            meanElev,
+            elevMin,
+            elevMax,
+            meanSlope,
+            slopeMax,
             roughness,
             suitability,
             isPlanar,
-            samples.size(),
-            samples
+            n,          // total points analysed across the dense grid
+            samples     // bounded, evenly-spaced subset for persistence
         );
+    }
+
+    private static int clampGrid(int v) {
+        if (v < GRID_MIN) return GRID_MIN;
+        if (v > GRID_MAX) return GRID_MAX;
+        return v;
     }
 
     /**
