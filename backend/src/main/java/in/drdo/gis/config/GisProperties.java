@@ -35,10 +35,11 @@ public class GisProperties {
         private int bezierSmoothingSteps = 64;
         private int ellipseSegments = 72;
         private int controlPointCount = 8;
-        private double minFrontageM = 10.0;
-        private double maxFrontageM = 5000.0;
-        private double minDepthM = 5.0;
-        private double maxDepthM = 2000.0;
+        // No practical upper limit on deployment size; only a positive floor.
+        private double minFrontageM = 1.0;
+        private double maxFrontageM = 1_000_000.0;
+        private double minDepthM = 1.0;
+        private double maxDepthM = 1_000_000.0;
     }
 
     @Data

@@ -11,10 +11,12 @@ public class DeploymentRequestDto {
     @NotNull @DecimalMin("-180.0") @DecimalMax("180.0")
     private Double centerLon;
 
-    @NotNull @DecimalMin("10.0") @DecimalMax("5000.0")
+    // No upper limit — any size is allowed. A small positive floor is kept only so
+    // the geometry (ellipse / Bézier) can't be built from a zero or negative extent.
+    @NotNull @DecimalMin("1.0")
     private Double frontageM;
 
-    @NotNull @DecimalMin("5.0") @DecimalMax("2000.0")
+    @NotNull @DecimalMin("1.0")
     private Double depthM;
 
     @DecimalMin("0.0") @DecimalMax("90.0")

@@ -180,8 +180,13 @@ clicking the map (or typing Lat/Lon) → **Compute Geometry** draws a deployment
 | 8 | Click **DELETE** | It disappears from the list. |
 | 9 | Restart the app | Remaining deployments are still there (persisted in PostgreSQL). |
 
-**Valid input ranges:** lat −90…90, lon −180…180, frontage 10–5000 m, depth 5–2000 m,
-slope 0–90°, heading 0–360°. Out-of-range values disable Compute or return HTTP 400.
+**Valid input ranges:** lat −90…90, lon −180…180, slope 0–90°, heading 0–360°.
+**Frontage and depth have no upper limit** — enter any positive size (a deployment can
+be tens of kilometres across). The terrain analysis is **adaptive**: it samples the
+whole footprint at roughly the terrain resolution (~30 m) no matter how large the area,
+so big deployments are analysed just as accurately as small ones (a 25 km × 12 km
+deployment samples ~200,000 points; a 200 m × 100 m one samples ~80). Out-of-range
+lat/lon/slope/heading, or a zero/negative frontage/depth, disable Compute or return HTTP 400.
 
 **Edge cases (all expected, not errors):**
 
@@ -271,7 +276,7 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 ### Deployment / workflow
 | Symptom | Cause → Fix |
 |---------|-------------|
-| "Validation failed" / HTTP 400 on create | Value out of range (see ranges in Section 7) → correct the input. |
+| "Validation failed" / HTTP 400 on create | A value is out of range — lat/lon/slope/heading (see Section 7), or a frontage/depth that isn't a positive number. Correct the input. |
 | **COMPUTE GEOMETRY** stays greyed out | Latitude/Longitude empty or out of range → enter valid coordinates (type or click the map). |
 | **EDIT GEOMETRY** button missing | The deployment is an **ELLIPSE** (planar) — only adaptive Bézier shapes are editable. By design. |
 | Geometry shows **INVALID** | Rare; the polygon couldn't be repaired → note the coordinates/params and report. |
