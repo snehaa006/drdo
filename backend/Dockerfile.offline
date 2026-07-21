@@ -1,7 +1,0 @@
-# Offline backend image — packages the PRE-BUILT jar (no Maven / no network).
-# Build the jar first with:  mvn -DskipTests clean package
-FROM eclipse-temurin:17-jre
-WORKDIR /app
-COPY target/gis-deployment-system-1.0.0-SNAPSHOT.jar app.jar
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]

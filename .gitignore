@@ -8,12 +8,6 @@ frontend/dist/
 frontend/.angular/
 .angular/
 
-# ── Offline deployment bundle — regenerate with scripts/make_offline_bundle.sh ──
-# (too large for GitHub / are build artifacts)
-deploy/images/*.tar.gz
-deploy/manual/backend.jar
-deploy/manual/frontend-dist/
-
 # ── OS / editor cruft ────────────────────────────────────────
 .DS_Store
 *.log
