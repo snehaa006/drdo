@@ -15,15 +15,16 @@ public class GisProperties {
 
     @Data
     public static class Terrain {
-        private String dtedBasePath = "/data/terrain/dted";
-        private String geotiffBasePath = "/data/terrain/geotiff";
+        private String dtedBasePath = "../data/terrain/dted";
+        private String geotiffBasePath = "../data/terrain/geotiff";
         /**
          * File name (within {@link #geotiffBasePath}) of the GeoTIFF to use as the
          * map base layer. When set, it is returned first by the tile-listing API so
          * the frontend loads it by default. Blank = use whichever is discovered
-         * first. Configure via GIS_TERRAIN_DEFAULT_BASE_MAP without any code change.
+         * first. Configure via gis.terrain.default-base-map (application.yml) or the
+         * matching command-line arg without any code change.
          */
-        private String defaultBaseMap = "";
+        private String defaultBaseMap = "india_basemap.tif";
         private int tileCacheSize = 100;
         private double slopeThresholdDefault = 15.0;
         private double elevationSampleDistanceM = 30.0;

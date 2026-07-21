@@ -1,93 +1,139 @@
-# DRDO GIS — Offline-First Terrain-Aware Deployment Geometry System
+# DRDO GIS — Offline Terrain-Aware Deployment Geometry System
 
-Enterprise-grade offline GIS system for DRDO-style deployment geometry generation.
+Offline GIS system for DRDO-style deployment geometry generation. Two parts only:
 
-## Architecture
+- **Backend** — Java 17 + Spring Boot 3 (GeoTools, JTS, PostGIS)
+- **Frontend** — Angular 15 (OpenLayers 7, Turf.js)
+
+No Docker. No Python. Runs fully offline once the build dependencies are in place.
 
 ```
 drdo-gis/
-├── backend/          Spring Boot 3 + GeoTools + JTS + PostGIS
-├── frontend/         Angular 15 + OpenLayers 7 + Turf.js
-├── docker-compose.yml
-└── data/             (mount offline terrain data here)
-    ├── terrain/
-    │   ├── dted/     DTED Level 0/1/2 files  (*.dt0, *.dt1, *.dt2)
-    │   └── geotiff/  Offline GeoTIFF imagery (*.tif, *.tiff)
+├── backend/          Spring Boot API  (run with Maven → java)
+├── frontend/         Angular 15 app   (run with ng serve)
+└── data/
+    └── terrain/
+        ├── dted/     DTED elevation tiles  (*.dt0 / *.dt1 / *.dt2)
+        └── geotiff/  Offline GeoTIFF base map (*.tif) — india_basemap.tif ships
 ```
 
-## Quick Start
+---
 
-> **Deploying on-site with no internet?** See **[OFFLINE_SETUP.md](OFFLINE_SETUP.md)** —
-> it uses the pre-built image bundle in `deploy/` so nothing is downloaded on the
-> target machine. All data paths are configured in **`.env`** (no code changes).
+## Prerequisites (already-present at DRDO)
 
-### Prerequisites
-- Docker 24+ & Docker Compose 2+
-- Offline DTED/GeoTIFF terrain files mounted at `./data/`
+| Tool | Needed for | Check |
+|------|-----------|-------|
+| **Java 17** (JDK) | Building & running the backend | `java -version` → 17 |
+| **Maven 3** | Building the backend | `mvn -version` |
+| **Node.js 18+** & npm | Running the Angular frontend | `node -v`, `npm -v` |
+| **PostgreSQL 15 + PostGIS 3.3** | Database (you already use pgAdmin) | pgAdmin connects |
 
-### Run
-```bash
-docker compose up -d
-```
-- Frontend: http://localhost:4200
-- Backend API: http://localhost:8080/api/v1
+> **Offline note:** Maven and npm each need their libraries the first time
+> (`~/.m2` for Maven, `node_modules` for npm). On an air-gapped machine, populate
+> these once from DRDO's internal Maven/npm mirror, or build on a connected
+> machine and carry the folders over. After that first fetch, everything runs
+> with no network. See **[OFFLINE_SETUP.md](OFFLINE_SETUP.md)**.
 
-All host-specific settings (terrain data folders, base-map file, ports, DB
-credentials) live in **`.env`** and can be changed without touching any code.
+---
 
-### Development (without Docker)
+## Quick start (three terminals / steps)
 
-**Backend**
+### 1. Database — do this once, in **pgAdmin** (no `psql` needed)
+
+You already have pgAdmin. Use its **Query Tool** for every SQL command below —
+you do **not** need the `psql` command line at all.
+
+1. In pgAdmin, create a database named **`drdo_gis`** (right-click *Databases →
+   Create → Database*).
+2. Create a login role **`drdo_user`** with password **`drdo_secret`**
+   (*Login/Group Roles → Create*; on the *Definition* tab set the password, on
+   *Privileges* tab enable *Can login*).
+3. Open the **Query Tool on the `drdo_gis` database** and run:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   CREATE EXTENSION IF NOT EXISTS postgis_topology;
+   GRANT ALL ON SCHEMA public TO drdo_user;
+   GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;
+   ```
+
+That's the whole database setup. The backend connects to it over the network
+(JDBC) — exactly the way pgAdmin does — so if pgAdmin can connect, the backend
+can too. The connection settings live in
+`backend/src/main/resources/application.yml` and are already set to the
+name/user/password above. Change them there only if you used different values.
+
+### 2. Backend — Spring Boot API on port 8080
+
 ```bash
 cd backend
-# Ensure PostgreSQL+PostGIS running at localhost:5432
 mvn spring-boot:run
 ```
+On first start the backend runs its Liquibase migrations and **creates all the
+tables itself** in `drdo_gis` — you don't create any tables by hand. It serves
+the API at **http://localhost:8080/api/v1** (health: `/api/actuator/health`).
 
-**Frontend**
+To produce a portable JAR instead (so it can be launched with only Java):
+```bash
+cd backend
+mvn clean package                 # builds target/gis-deployment-system-1.0.0-SNAPSHOT.jar
+java -jar target/gis-deployment-system-1.0.0-SNAPSHOT.jar
+```
+(Run the JAR from inside `backend/` so the default `../data/terrain/...` paths
+resolve to the repo's `data/` folder.)
+
+### 3. Frontend — Angular app on port 4200
+
 ```bash
 cd frontend
-npm install
-ng serve
+npm install        # once (or when dependencies change)
+npm start          # = ng serve
+```
+Open **http://localhost:4200**. The dev server calls the backend on port 8080
+(CORS is already allowed for `localhost:4200`). To reach it from another PC on
+the LAN: `npm start -- --host 0.0.0.0` and browse to `http://<this-pc-ip>:4200`.
+
+---
+
+## Terrain data
+
+Place files under `./data/` (or point the backend at DRDO's folders — see below).
+
+**DTED** (`.dt0/.dt1/.dt2`) — layout and file-name casing don't matter; each file
+records the 1° cell it covers in its own header, so the reader finds the right
+tile regardless of naming:
+```
+data/terrain/dted/n28/e077.dt1      # sample layout
+data/terrain/dted/E077/N28.DT1      # standard DTED — also works
 ```
 
-## Terrain Data Setup
-
-Place files in the `./data/` directory:
-
-**DTED files** — follow DTED naming convention:
+**GeoTIFF** base map — auto-discovered on startup and served to the map:
 ```
-data/terrain/dted/n28/e077.dt1   # covers lat 28-29, lon 77-78
-data/terrain/dted/n29/e077.dt1
+data/terrain/geotiff/india_basemap.tif    # ships by default (real India relief)
 ```
+A real India base map ships so the map is recognizable out of the box. Replace it
+with DRDO's aerial/satellite GeoTIFF for production. For the browser map to line
+up it should be **Web-Mercator (EPSG:3857)**; reproject once (on a connected
+machine) with `gdalwarp -t_srs EPSG:3857 -of COG in.tif out.tif`. When no readable
+GeoTIFF is present the map falls back to a coordinate graticule so it is never blank.
 
-**GeoTIFF files** — auto-discovered on startup and served to the map as the
-offline base layer:
-```
-data/terrain/geotiff/india_basemap.tif      # shipped default (real India map)
-data/terrain/geotiff/delhi_highres.tiff     # add DRDO's own imagery here
-```
-The GeoTIFF shown as the base layer is chosen by the **`GIS_TERRAIN_DEFAULT_BASE_MAP`**
-setting (`DEFAULT_BASE_MAP` in `.env`); set it to DRDO's own file name to swap the
-base map without any code change.
-
-> For direct in-browser rendering by OpenLayers, GeoTIFFs should be
-> **Web-Mercator (EPSG:3857)**, ideally Cloud-Optimized (COG). The map view
-> uses EPSG:3857; OpenLayers' GeoTIFF source does not client-reproject rasters,
-> so a 4326/UTM TIFF will load but may not align with the 3857 view. Reproject
-> one with `gdalwarp -t_srs EPSG:3857 -of COG in.tif out.tif`. When no GeoTIFF is
-> mounted, the map falls back to an offline coordinate graticule so it is never blank.
-
-A real **India base map**, `data/terrain/geotiff/india_basemap.tif` (public-domain
-Natural Earth relief, reprojected to EPSG:3857, covering 68–98°E / 6–38°N), ships
-so the map is recognizable out of the box. Replace it with DRDO's real
-aerial/satellite GeoTIFFs for production use. A synthetic placeholder can also be
-generated fully offline (no GDAL required) with:
+To use different folders without moving files, override the paths when starting
+the backend:
 ```bash
-python3 scripts/generate_sample_geotiff.py --lon-min 75 --lon-max 79 --lat-min 28 --lat-max 31
+mvn spring-boot:run -Dspring-boot.run.arguments="\
+  --gis.terrain.dted-base-path=C:/drdo/terrain/dted \
+  --gis.terrain.geotiff-base-path=C:/drdo/terrain/geotiff \
+  --gis.terrain.default-base-map=drdo_map.tif"
+```
+or, if running the JAR:
+```bash
+java -jar target/gis-deployment-system-1.0.0-SNAPSHOT.jar \
+  --gis.terrain.dted-base-path=C:/drdo/terrain/dted \
+  --gis.terrain.default-base-map=drdo_map.tif
 ```
 
-## API Reference
+---
+
+## API reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -105,7 +151,9 @@ python3 scripts/generate_sample_geotiff.py --lon-min 75 --lon-max 79 --lat-min 2
 | GET    | /v1/tiles/geotiff | List available offline GeoTIFF base maps (+ bounds) |
 | GET    | /v1/tiles/geotiff/{name} | Stream a GeoTIFF raster for the map base layer |
 
-## System Flow
+Swagger UI: **http://localhost:8080/api/swagger-ui.html**
+
+## System flow
 
 ```
 User clicks map
@@ -113,32 +161,15 @@ User clicks map
   → Backend loads nearby DTED tiles
   → TerrainEngine samples 11×11 elevation grid
   → Classifies terrain: planar / non-planar
-       (mean slope < user slopeThreshold AND low roughness → planar)
   → If planar  → BezierEngine generates ellipse
-  → If non-planar → directional slope factors computed
-                  → anchor points distorted proportionally
-                  → Catmull-Rom handles generated
-                  → cubic Bézier polygon built
-  → PolygonValidationService validates / repairs
-  → GeoJSON returned to frontend
-  → OpenLayers renders editable geometry
-  → User drags control points → PUT /control-points
-  → Backend regenerates Bézier curve → persists to PostGIS
+  → If non-planar → directional slope factors → distorted anchors
+                  → Catmull-Rom handles → cubic Bézier polygon
+  → PolygonValidationService validates / repairs (JTS buffer(0))
+  → GeoJSON returned → OpenLayers renders editable geometry
+  → User drags control points → PUT /control-points → regenerated → persisted
 ```
 
-## Key Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Planar → ellipse | Mathematically exact for flat terrain |
-| Non-planar → adaptive Bézier | Smooth organic deformation toward suitable terrain |
-| Distortion proportional to slope | Preserves deployment intent while fitting terrain |
-| JTS buffer(0) repair | Industry-standard polygon repair strategy |
-| PostGIS spatial indexes | Sub-millisecond spatial queries at scale |
-| Liquibase migrations | Reproducible schema across environments |
-| `/v1/tiles/geotiff/{name}` serves `ResourceRegion` + honours `Range` | OpenLayers' GeoTIFF source (geotiff.js) fetches rasters in byte-range chunks and errors on a plain 200; Spring MVC (unlike WebFlux) does not add Range support for a controller returning `Resource` automatically, so it's implemented explicitly |
-
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -148,4 +179,5 @@ User clicks map
 | Database | PostgreSQL 15 + PostGIS 3.3 |
 | Build | Maven 3, Node 18, Angular CLI 15 |
 
-All operation is **fully offline** — no internet, CDN, cloud tiles, or external APIs required.
+All operation is **fully offline** — no internet, CDN, cloud tiles, or external
+APIs are used at runtime.

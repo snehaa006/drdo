@@ -1,140 +1,139 @@
 # DRDO GIS — On-Site Runbook
 ### Setup · Configuration · Testing · Every Error and Its Fix
 
-This is the single document to follow on the DRDO machine (offline). It assumes
-**no internet** and **no ability to ask anyone** — everything you need is here and
-inside this project folder.
+The single document to follow on the DRDO machine (offline). No Docker, no Python
+— only **Java + Spring Boot** (backend), **Angular** (frontend), and
+**PostgreSQL** (you manage it in pgAdmin).
 
-Read Sections 1–5 to get it running. Use Section 6 to test the workflow, Section 7
-for edge cases, and **Section 8 is the master error list** — find your symptom and
-apply the fix.
+Read Sections 1–5 to get it running. Section 6 tests the workflow, Section 7 edge
+cases, and **Section 8 is the master error list** — find your symptom, apply the fix.
 
 ---
 
-## 1. What you have (bundle contents)
+## 1. What you have
 
 | Path | Purpose |
 |------|---------|
-| `.env` | **The only file you edit.** All paths, base map, ports, DB creds. |
-| `docker-compose.offline.yml` | Runs the pre-built containers (no build, no internet). |
-| `deploy/images/drdo-gis-images.tar.gz` | The 3 pre-built images (~396 MB). |
-| `deploy/manual/` | No-Docker fallback: `backend.jar`, `frontend-dist/`, `serve_frontend.py`. |
+| `backend/` | Spring Boot API — build with Maven, run with Java. |
+| `frontend/` | Angular 15 app — run with `ng serve`. |
+| `backend/src/main/resources/application.yml` | Backend config: DB + terrain paths. |
 | `data/terrain/geotiff/india_basemap.tif` | Real India base map (replaceable). |
 | `data/terrain/dted/` | Sample DTED (replace with DRDO's `.dt1` files). |
 
-> Pre-built images are **linux/amd64** (standard Windows/Linux/Intel PCs). If the
-> machine is an Apple-Silicon Mac, use **Path B (manual)** — the `.jar` runs on any CPU.
+**On the machine you need:** Java 17 (JDK), Maven 3, Node.js 18+ with npm, and
+PostgreSQL 15 with the PostGIS 3.3 extension. See **OFFLINE_SETUP.md §1** for how
+to get the Maven/npm libraries onto an air-gapped machine.
 
 ---
 
-## 2. Configuration flow — the `.env` file
+## 2. Configuration — `application.yml`
 
-Open `.env` in a text editor. You only ever change these:
+Everything the backend needs is in `backend/src/main/resources/application.yml`.
+The values you may change:
 
-```
-DTED_HOST_DIR=./data/terrain/dted        # folder with DRDO's .dt1 files
-GEOTIFF_HOST_DIR=./data/terrain/geotiff  # folder with the base-map .tif
-DEFAULT_BASE_MAP=india_basemap.tif       # which .tif to show as the map
-FRONTEND_PORT=4200                       # change if the port is busy
-BACKEND_PORT=8080
-POSTGRES_PORT=5432
-POSTGRES_DB=drdo_gis
-POSTGRES_USER=drdo_user
-POSTGRES_PASSWORD=drdo_secret
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/drdo_gis   # host:port/dbname — match pgAdmin
+    username: drdo_user
+    password: drdo_secret
+gis:
+  terrain:
+    dted-base-path: ../data/terrain/dted             # folder with DRDO's .dt1 files
+    geotiff-base-path: ../data/terrain/geotiff        # folder with the base-map .tif
+    default-base-map: india_basemap.tif               # which .tif to show as the map
 ```
 
 **Decision guide:**
 
-- **DTED** — either drop DRDO's `.dt1` files into `data/terrain/dted/` (any layout),
-  **or** set `DTED_HOST_DIR` to the folder where their files already are.
-  *Folder layout / file-name casing does not matter* — the system reads each file's
-  internal header to know which area it covers. `E077/N28.DT1`, `n28/e077.dt1`, or a
-  single flat folder all work.
-- **Base map** — to use DRDO's own imagery, put their `.tif` in `data/terrain/geotiff/`
-  and set `DEFAULT_BASE_MAP=<their-file>.tif`. It must be **EPSG:3857** (see §8-G).
-- **Ports** — only change if 4200 / 8080 / 5432 are already in use on the machine.
+- **Database** — the `url` / `username` / `password` must match the database and
+  role you create in pgAdmin (Section 3). Defaults are `drdo_gis` /
+  `drdo_user` / `drdo_secret`.
+- **DTED** — drop DRDO's `.dt1` files into `data/terrain/dted/` (any layout), or
+  set `dted-base-path` to the folder where they already are. Layout / casing don't
+  matter — the reader uses each file's header. Windows: use forward slashes,
+  e.g. `C:/drdo/dted`.
+- **Base map** — to use DRDO's imagery, put their `.tif` in `data/terrain/geotiff/`
+  and set `default-base-map: <their-file>.tif`. It must be **EPSG:3857** (see §8-F).
 
-Windows paths: use forward slashes, e.g. `DTED_HOST_DIR=C:/drdo/dted`.
-
----
-
-## 3. Setup — Path A: Docker (recommended)
-
-Copy the whole project folder to the machine, open a terminal **in that folder**, then:
-
-```bash
-# 1. Load the pre-built images (one time)
-docker load -i deploy/images/drdo-gis-images.tar.gz
-
-# 2. (edit .env as per Section 2)
-
-# 3. Start everything
-docker compose -f docker-compose.offline.yml up -d
-```
-
-Open **http://localhost:4200**. Done — the database is inside the bundle, nothing
-else to install.
-
-Stop / start again:
-```bash
-docker compose -f docker-compose.offline.yml down
-docker compose -f docker-compose.offline.yml up -d
-```
+Frontend port (4200) and backend port (8080): change only if busy — backend port
+via `--server.port=8081`, frontend via `ng serve --port 4201`.
 
 ---
 
-## 4. Setup — Path B: Manual (no Docker)
+## 3. Setup the database (once, in pgAdmin — no psql)
 
-Needs on the machine: **Java 17**, **Python 3**, **PostgreSQL 15 + PostGIS 3.3**.
+You already use pgAdmin, so PostgreSQL is running. Do all of this in pgAdmin's
+**Query Tool** — you do **not** need the `psql` command line.
 
+1. **Create the database** — right-click *Databases → Create → Database*, name it
+   **`drdo_gis`**.
+2. **Create the login role** — right-click *Login/Group Roles → Create*; name
+   **`drdo_user`**, set password **`drdo_secret`** (Definition tab), enable
+   *Can login?* (Privileges tab).
+3. **Enable PostGIS** — open the **Query Tool on the `drdo_gis` database** and run:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   CREATE EXTENSION IF NOT EXISTS postgis_topology;
+   GRANT ALL ON SCHEMA public TO drdo_user;
+   GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;
+   ```
+
+**Do not create tables** — the backend creates them itself on first start.
+
+> **How the app talks to the database:** PostgreSQL runs as a background service
+> listening on a port (5432 by default — see pgAdmin *server → Properties →
+> Connection*). The backend connects to that port over JDBC using the settings in
+> `application.yml` — the same host/port/user/password pgAdmin uses. Nothing goes
+> through a terminal or through psql. If pgAdmin connects, the backend connects.
+
+---
+
+## 4. Run it (two terminals)
+
+**Terminal 1 — backend** (from the `backend` folder):
 ```bash
-# 1. Create the database (once), as a Postgres admin:
-psql -c "CREATE DATABASE drdo_gis;"
-psql -c "CREATE USER drdo_user WITH PASSWORD 'drdo_secret';"
-psql -c "GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;"
-psql -d drdo_gis -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology; GRANT ALL ON SCHEMA public TO drdo_user;"
+cd backend
+mvn spring-boot:run
+```
+Starts on **http://localhost:8080** (API base `/api`). First run creates all
+tables. Leave it running.
 
-# 2. Start the backend (terminal 1)
-java -jar deploy/manual/backend.jar \
-  --spring.datasource.url=jdbc:postgresql://localhost:5432/drdo_gis \
-  --spring.datasource.username=drdo_user \
-  --spring.datasource.password=drdo_secret \
-  --gis.terrain.dted-base-path=./data/terrain/dted \
-  --gis.terrain.geotiff-base-path=./data/terrain/geotiff \
-  --gis.terrain.default-base-map=india_basemap.tif
-
-# 3. Start the frontend (terminal 2)
-python3 deploy/manual/serve_frontend.py
+*(Alternative — build a JAR and run with plain Java, from inside `backend/`:)*
+```bash
+mvn clean package
+java -jar target/gis-deployment-system-1.0.0-SNAPSHOT.jar
 ```
 
+**Terminal 2 — frontend** (from the `frontend` folder):
+```bash
+cd frontend
+npm install     # first time only
+npm start       # = ng serve, on port 4200
+```
 Open **http://localhost:4200**.
 
 ---
 
 ## 5. First-run verification (smoke tests)
 
-Run these after starting (works for both paths):
-
 ```bash
 curl http://localhost:8080/api/actuator/health          # -> {"status":"UP"}
-curl http://localhost:8080/api/v1/tiles/geotiff          # -> lists your base map first
-curl http://localhost:4200/api/v1/deployments            # -> [] (or your deployments)
+curl http://localhost:8080/api/v1/tiles/geotiff          # -> lists your base map
+curl http://localhost:8080/api/v1/deployments            # -> [] (or your deployments)
 ```
 
-Check the backend registered the terrain data (Docker: `docker logs drdo_backend`):
+In the backend (Terminal 1) log, look for:
 ```
 Registered 1 new GeoTIFF tiles
 Indexed N DTED tile(s) by header origin ...   (N > 0 means DTED was found)
 Started GisDeploymentApplication ...
 ```
-
 Then open **http://localhost:4200** — you should see the India map (or DRDO's).
 
 ---
 
 ## 6. Full workflow test
-
-Do this once end-to-end to confirm everything works.
 
 | # | Action | Expected result |
 |---|--------|-----------------|
@@ -147,10 +146,10 @@ Do this once end-to-end to confirm everything works.
 | 7 | On a **NON-PLANAR** deployment, click **✎ EDIT GEOMETRY**, drag a control point, **✔ SAVE EDITS** | Geometry reshapes and persists. |
 | 8 | Select a deployment in the left list | Map pans to it and shows its geometry + details. |
 | 9 | Click **DELETE** on a deployment | It disappears from the list. |
-| 10 | `down` then `up -d` again (or restart backend) | Your remaining deployments are still there (persisted). |
+| 10 | Restart the backend | Your remaining deployments are still there (persisted in PostgreSQL). |
 
-Both ways of setting the location — **typing coordinates** and **clicking the map** —
-are supported and interchangeable.
+Both ways of setting the location — **typing coordinates** and **clicking the
+map** — are supported and interchangeable.
 
 ---
 
@@ -170,115 +169,93 @@ are supported and interchangeable.
 | Heading | 0 vs 90 | Shape orientation rotates. |
 | ELLIPSE geometry | any planar result | **EDIT GEOMETRY hidden** (only adaptive shapes are editable — by design). |
 | No base map | remove all `.tif`, restart | Map falls back to a coordinate grid — never blank. |
-| Swap base map | change `DEFAULT_BASE_MAP`, restart | New imagery appears. |
+| Swap base map | change `default-base-map`, restart | New imagery appears. |
 
 ---
 
 ## 8. Error catalog — symptom → cause → fix
 
-### A. Docker & image loading
+### A. Backend build / start
 | Symptom | Cause → Fix |
 |---------|-------------|
-| `docker: command not found` | Docker not installed → use **Path B (manual)**. |
-| `Cannot connect to the Docker daemon` | Docker not running → start Docker Desktop (wait for it to say "running"); Linux: `sudo systemctl start docker`. |
-| `docker load` → `unexpected EOF` / `invalid tar` | Corrupted copy → re-copy `drdo-gis-images.tar.gz`; verify with `gzip -t deploy/images/drdo-gis-images.tar.gz`. |
-| `no space left on device` on load | Need ~1.5 GB free → free disk space, retry. |
-| `no matching manifest for linux/arm64` | Machine is Apple-Silicon; images are amd64 → use **Path B**. |
-| Compose tries to **build** / `failed to solve` | You used the wrong compose file → use `-f docker-compose.offline.yml` and run `docker load` first. |
-| Containers start but app is very slow | amd64 images under emulation on ARM → use **Path B**. |
+| `mvn: command not found` | Maven not installed / on PATH → install Maven 3, or build a JAR on a connected machine and run it with Java (OFFLINE_SETUP §1). |
+| `java: command not found` | Java 17 not installed / on PATH → install JDK 17. |
+| `UnsupportedClassVersionError` | Wrong Java version → needs **Java 17**. |
+| Maven can't download dependencies | No network / no mirror → populate `~/.m2` first (OFFLINE_SETUP §1). |
+| Port 8080 already in use | Add `--server.port=8081` (and use that port in the URLs). |
 
-### B. Ports
+### B. Database
 | Symptom | Cause → Fix |
 |---------|-------------|
-| `Bind for 0.0.0.0:4200 failed: port is already allocated` | Port in use → change `FRONTEND_PORT` in `.env`, `up -d` again. |
-| Same for 8080 / 5432 | Change `BACKEND_PORT` / `POSTGRES_PORT` in `.env`. |
+| `Connection refused` to `localhost:5432` | PostgreSQL not running, or wrong host/port → confirm pgAdmin connects; match its host/port in `application.yml`. |
+| `database "drdo_gis" does not exist` | Create it in pgAdmin (§3.1). |
+| `password authentication failed for user "drdo_user"` | Role/password mismatch → align `application.yml` with the pgAdmin role (§3.2). |
+| `could not open extension control file ... postgis` | PostGIS package not installed → install PostGIS for this PostgreSQL, then re-run §3.3. |
+| `permission denied to create extension "postgis"` | Run the `CREATE EXTENSION` lines (§3.3) as a Postgres **superuser** in pgAdmin. |
+| `Could not acquire change log lock` | A previous run crashed mid-migration → in pgAdmin Query Tool on `drdo_gis`: `DELETE FROM databasechangeloglock;` then restart the backend. |
+| `psql` not recognised in the terminal | Expected — psql isn't on PATH. You don't need it; use pgAdmin's Query Tool. (Optional: OFFLINE_SETUP §2 shows the full psql path.) |
+| Want a clean/empty database | In pgAdmin, drop & recreate `drdo_gis` (⚠ deletes all saved deployments), then re-run §3.3 and restart the backend. |
 
-### C. `.env` / configuration
+### C. Frontend
 | Symptom | Cause → Fix |
 |---------|-------------|
-| `.env` edits have no effect | Run compose **from the folder containing `.env`**; force refresh: `docker compose -f docker-compose.offline.yml up -d --force-recreate`. |
-| Mount error / path not found | The `DTED_HOST_DIR`/`GEOTIFF_HOST_DIR` path doesn't exist → create it or fix the path. Windows: use forward slashes. |
+| `ng: command not found` | Angular CLI/Node missing → install Node 18+; `npm start` uses the local CLI once `npm install` has run. |
+| `npm install` fails offline | `node_modules`/registry not available → OFFLINE_SETUP §1 (internal mirror or carry `node_modules`). |
+| "Failed to load deployments" toast | Backend not reachable → confirm backend is UP (`curl .../actuator/health`) on 8080. |
+| Blank white page | Frontend didn't compile → check the `ng serve` terminal for errors; hard-refresh (Ctrl+Shift+R). |
+| Map never loads / JS errors | Open browser console (F12), note the error; usually stale cache → hard-refresh. |
+| CORS error in console | Frontend served from an unexpected origin → run it via `ng serve` on 4200 (allowed origin), or add your origin to `WebConfig`. |
 
-### D. Database (Docker)
+### D. Base map / GeoTIFF
 | Symptom | Cause → Fix |
 |---------|-------------|
-| Backend keeps restarting, "connection refused" | Postgres not ready yet → wait ~20 s; check `docker compose -f docker-compose.offline.yml ps` shows **postgres (healthy)**. |
-| `Could not acquire change log lock` | A previous run crashed mid-migration → `docker exec drdo_postgres psql -U drdo_user -d drdo_gis -c "DELETE FROM databasechangeloglock;"` then restart backend. |
-| Want a clean/empty database | `docker compose -f docker-compose.offline.yml down -v` (⚠ deletes all saved deployments), then `up -d`. |
-
-### E. Database (manual / Path B)
-| Symptom | Cause → Fix |
-|---------|-------------|
-| `database "drdo_gis" does not exist` | Run the CREATE DATABASE step in §4. |
-| `could not open extension control file ... postgis` | PostGIS not installed → install the PostGIS package for your PostgreSQL. |
-| `permission denied to create extension "postgis"` | Run the `CREATE EXTENSION` lines in §4 as a **superuser**. |
-| `password authentication failed` | Credentials don't match → align the `--spring.datasource.*` args with the DB user. |
-
-### F. Backend startup
-| Symptom | Cause → Fix |
-|---------|-------------|
-| `java: command not found` (Path B) | Install Java 17 / put it on PATH. |
-| `UnsupportedClassVersionError` | Wrong Java → needs **Java 17**. |
-| Port 8080 already in use | Change `BACKEND_PORT` (Docker) or `--server.port` (manual). |
-
-### G. Base map / GeoTIFF
-| Symptom | Cause → Fix |
-|---------|-------------|
-| Map shows only a **grid**, no imagery | (1) No readable `.tif` in the geotiff folder; (2) `DEFAULT_BASE_MAP` name doesn't match a file; (3) the `.tif` isn't EPSG:3857. Check `curl http://localhost:8080/api/v1/tiles/geotiff` and `docker logs drdo_backend`. |
-| Imagery appears **offset / wrong place** | GeoTIFF is not EPSG:3857 → reproject once: `gdalwarp -t_srs EPSG:3857 -of COG in.tif out.tif` (needs GDAL on a networked machine, done beforehand). |
+| Map shows only a **grid**, no imagery | (1) No readable `.tif` in the geotiff folder; (2) `default-base-map` name doesn't match a file; (3) the `.tif` isn't EPSG:3857. Check `curl http://localhost:8080/api/v1/tiles/geotiff` and the backend log. |
+| Imagery appears **offset / wrong place** | GeoTIFF not EPSG:3857 → reproject once on a networked machine: `gdalwarp -t_srs EPSG:3857 -of COG in.tif out.tif`. |
 | Tile request returns **500** | The `.tif` is corrupt / not a valid TIFF → replace it. |
 | Base map loads very slowly | Huge, non-tiled GeoTIFF → convert to Cloud-Optimized: `gdal_translate in.tif out.tif -of COG`. |
 
-### H. DTED / terrain
+### E. DTED / terrain
 | Symptom | Cause → Fix |
 |---------|-------------|
-| **Everywhere** is flat: Mean Elevation 0, always PLANAR/ELLIPSE | DTED not found → `docker logs drdo_backend` shows `Indexed 0 DTED tile(s)` → `DTED_HOST_DIR` is wrong or the folder has no `.dt1` files. Fix the path, restart. |
+| **Everywhere** is flat: Mean Elevation 0, always PLANAR/ELLIPSE | DTED not found → backend log shows `Indexed 0 DTED tile(s)` → `dted-base-path` wrong or folder has no `.dt1` files. Fix the path, restart. |
 | Flat **only in some areas** | Those points have no covering tile → normal; add tiles for that area if needed. |
-| A `.dt1` file exists but isn't used | It's not a valid DTED file (bad header) → verify the file. |
-| Elevation values look wrong | Wrong DTED data/level for the area → check the source data. |
+| A `.dt1` file exists but isn't used | Not a valid DTED file (bad header) → verify the file. |
 
-### I. Deployment / workflow
+### F. Deployment / workflow
 | Symptom | Cause → Fix |
 |---------|-------------|
-| "Validation failed" / HTTP 400 on create | A value is out of range: **lat −90…90, lon −180…180, frontage 10–5000 m, depth 5–2000 m, slope 0–90°, heading 0–360°** → correct the input. |
-| **COMPUTE GEOMETRY** stays greyed out | Latitude/Longitude empty or out of range → enter valid coordinates (type them or click the map). |
-| **EDIT GEOMETRY** button missing | The deployment is an **ELLIPSE** (planar) — only adaptive Bézier shapes are editable. This is by design. |
+| "Validation failed" / HTTP 400 on create | Value out of range: **lat −90…90, lon −180…180, frontage 10–5000 m, depth 5–2000 m, slope 0–90°, heading 0–360°** → correct the input. |
+| **COMPUTE GEOMETRY** stays greyed out | Latitude/Longitude empty or out of range → enter valid coordinates (type or click the map). |
+| **EDIT GEOMETRY** button missing | The deployment is an **ELLIPSE** (planar) — only adaptive Bézier shapes are editable. By design. |
 | Geometry shows **INVALID** | Rare; the polygon couldn't be repaired → note the coordinates/params and report. |
 
-### J. Frontend / UI
+### G. Accessing from another PC on the LAN
 | Symptom | Cause → Fix |
 |---------|-------------|
-| "Failed to load deployments" toast | Backend not reachable → check backend is UP (`curl …/actuator/health`); Docker: ensure all 3 containers are up; Manual: ensure `serve_frontend.py` is running and the backend jar is up. |
-| Blank white page | Frontend not served → Docker: `docker logs drdo_frontend`; Manual: confirm `frontend-dist/` exists next to `serve_frontend.py`. |
-| Map never loads / JS errors | Open the browser console (F12) and note the error; usually a stale cache → hard-refresh (Ctrl+Shift+R). |
-
-### K. Accessing from another PC on the LAN
-| Symptom | Cause → Fix |
-|---------|-------------|
-| Works on the server but not from another machine | Use the **server's IP** in the browser (e.g. `http://10.x.x.x:4200`). The app calls the API on the same address automatically (relative path), so this works once the port is reachable through any firewall. |
+| Works on the server but not from another machine | Start the frontend with `ng serve --host 0.0.0.0` and browse to `http://<server-ip>:4200`. Ensure ports 4200/8080 are open in the firewall. |
 
 ---
 
 ## 9. Useful commands
 
 ```bash
-# Status of all containers
-docker compose -f docker-compose.offline.yml ps
-
-# Live backend logs (terrain/DTED/GeoTIFF messages, errors)
-docker logs -f drdo_backend
-
-# Restart just the backend (after changing DTED files / .env)
-docker compose -f docker-compose.offline.yml up -d --force-recreate backend
-
-# Peek at the database
-docker exec drdo_postgres psql -U drdo_user -d drdo_gis -c "SELECT count(*) FROM deployment;"
-
-# Full reset (⚠ wipes all deployments)
-docker compose -f docker-compose.offline.yml down -v && docker compose -f docker-compose.offline.yml up -d
+# Backend health
+curl http://localhost:8080/api/actuator/health
 
 # What base maps does the backend see?
 curl http://localhost:8080/api/v1/tiles/geotiff
+
+# Peek at the database — run in pgAdmin Query Tool on drdo_gis:
+#   SELECT count(*) FROM deployment;
+
+# Clear a stuck Liquibase lock — pgAdmin Query Tool on drdo_gis:
+#   DELETE FROM databasechangeloglock;
+
+# Rebuild the backend JAR
+cd backend && mvn clean package
+
+# Reinstall frontend deps
+cd frontend && npm install
 ```
 
 ---
@@ -290,12 +267,14 @@ curl http://localhost:8080/api/v1/tiles/geotiff
 | Web UI | http://localhost:4200 |
 | API base | http://localhost:8080/api/v1 |
 | Health check | http://localhost:8080/api/actuator/health |
-| Config file | `.env` (this folder) |
-| Start (Docker) | `docker compose -f docker-compose.offline.yml up -d` |
-| Stop (Docker) | `docker compose -f docker-compose.offline.yml down` |
-| Backend logs | `docker logs -f drdo_backend` |
+| Swagger UI | http://localhost:8080/api/swagger-ui.html |
+| Config file | `backend/src/main/resources/application.yml` |
+| Start backend | `cd backend && mvn spring-boot:run` |
+| Start frontend | `cd frontend && npm start` |
+| Database admin | pgAdmin (Query Tool) — no psql needed |
 | DTED: any layout? | Yes — files are matched by their header, not their name. |
 | Base map must be | EPSG:3857 GeoTIFF |
 | Set location | Type Lat/Lon **or** click the map |
 
-Everything runs fully offline. No internet, CDN, or external service is used at any point.
+Everything runs fully offline. No internet, CDN, or external service is used at
+runtime.

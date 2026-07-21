@@ -7,6 +7,18 @@ spring:
   application:
     name: drdo-gis-deployment-system
 
+  # ── Database connection ─────────────────────────────────────────────────────
+  # These four values must match the PostgreSQL database you created in pgAdmin:
+  #   url      -> jdbc:postgresql://<host>:<port>/<database name>
+  #              (host/port are the same ones pgAdmin uses to connect — usually
+  #               localhost and 5432; see pgAdmin > right-click server >
+  #               Properties > Connection)
+  #   username -> the login/role you created (e.g. drdo_user)
+  #   password -> that role's password
+  # You do NOT need psql for this — the backend connects over JDBC, exactly like
+  # pgAdmin does. Just make sure PostgreSQL is running (pgAdmin can connect) and
+  # the postgis extension is enabled on this database (run in pgAdmin's Query
+  # Tool:  CREATE EXTENSION IF NOT EXISTS postgis; ).
   datasource:
     url: jdbc:postgresql://localhost:5432/drdo_gis
     username: drdo_user
@@ -41,8 +53,14 @@ spring:
 
 gis:
   terrain:
-    dted-base-path: /data/terrain/dted
-    geotiff-base-path: /data/terrain/geotiff
+    # Paths are relative to the folder you start the backend from. Start it from
+    # the `backend/` folder (as in the docs) and `../data/...` resolves to the
+    # repo's data/ folder. Point them at DRDO's terrain folders if the data
+    # lives elsewhere — absolute paths are fine, e.g. C:/drdo/terrain/dted
+    dted-base-path: ../data/terrain/dted
+    geotiff-base-path: ../data/terrain/geotiff
+    # File name (inside geotiff-base-path) shown as the map base layer.
+    default-base-map: india_basemap.tif
     tile-cache-size: 100
     slope-threshold-default: 15.0
     elevation-sample-distance-m: 30.0
