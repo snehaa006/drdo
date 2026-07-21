@@ -21,8 +21,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TerrainEngine {
 
-    private static final double PLANAR_SLOPE_THRESHOLD = 5.0;   // degrees
-    private static final double PLANAR_ROUGHNESS_THRESHOLD = 0.15;
+    private static final double PLANAR_SLOPE_THRESHOLD = 5.0;   // degrees (fallback threshold)
+    // Roughness is the RMS deviation of the ground from its best-fit plane, in metres.
+    // Below PLANAR_ROUGHNESS_MAX_M the surface is smooth enough to treat as planar; the
+    // reference value scales roughness into the [0,1] suitability contribution.
+    private static final double PLANAR_ROUGHNESS_MAX_M = 2.0;
+    private static final double ROUGHNESS_SUITABILITY_REF_M = 15.0;
     // Adaptive sampling grid bounds. The number of rows/cols is chosen per request so
     // the spacing between samples stays close to the configured sample distance
     // (~30 m ≈ DTED resolution), regardless of the deployment size — a large area is
@@ -163,7 +167,7 @@ public class TerrainEngine {
         // low roughness) → ellipse; otherwise → adaptive Bézier.
         double planarSlopeLimit = slopeThresholdDeg > 0 ? slopeThresholdDeg : PLANAR_SLOPE_THRESHOLD;
         boolean isPlanar = meanSlope < planarSlopeLimit
-                        && roughness < PLANAR_ROUGHNESS_THRESHOLD;
+                        && roughness < PLANAR_ROUGHNESS_MAX_M;
         double suitability = computeSuitabilityScore(meanSlope, roughness, planarSlopeLimit);
 
         return new TerrainResult(
@@ -212,24 +216,61 @@ public class TerrainEngine {
         return factors;
     }
 
+    /**
+     * Terrain roughness = RMS deviation of the elevation surface from its best-fit
+     * plane, in metres. This is "detrended": a smooth surface — even a steeply
+     * tilted one — has roughness ≈ 0, while genuinely bumpy/irregular ground scores
+     * higher. It therefore measures real surface irregularity independent of the
+     * overall slope (which is reported separately). A least-squares plane
+     * z = a·x + b·y + c is fitted; because the grid indices are centred, the normal
+     * equations decouple (Σx = Σy = Σxy = 0), so a, b, c have closed forms.
+     */
     private double computeRoughness(double[][] grid) {
         int rows = grid.length;
         int cols = grid[0].length;
-        double sum = 0, sumSq = 0;
         int n = rows * cols;
-        for (double[] row : grid) for (double v : row) { sum += v; sumSq += v * v; }
-        double mean = sum / n;
-        double variance = sumSq / n - mean * mean;
-        double range = 0;
-        for (double[] row : grid) for (double v : row) {
-            if (v - mean > range) range = v - mean;
+        if (n == 0) return 0.0;
+
+        double cx = (cols - 1) / 2.0;
+        double cy = (rows - 1) / 2.0;
+        double sxx = 0, syy = 0, sxz = 0, syz = 0, sz = 0;
+        for (int r = 0; r < rows; r++) {
+            double yy = r - cy;
+            for (int c = 0; c < cols; c++) {
+                double xx = c - cx;
+                double z = grid[r][c];
+                sxx += xx * xx;
+                syy += yy * yy;
+                sxz += xx * z;
+                syz += yy * z;
+                sz  += z;
+            }
         }
-        return range > 0 ? Math.sqrt(variance) / range : 0.0;
+        double a  = sxx > 0 ? sxz / sxx : 0.0;   // plane slope per column step
+        double b  = syy > 0 ? syz / syy : 0.0;   // plane slope per row step
+        double c0 = sz / n;                        // plane height at the centre (= mean)
+
+        double sumSqResid = 0;
+        for (int r = 0; r < rows; r++) {
+            double yy = r - cy;
+            for (int c = 0; c < cols; c++) {
+                double fit = a * (c - cx) + b * yy + c0;
+                double resid = grid[r][c] - fit;
+                sumSqResid += resid * resid;
+            }
+        }
+        return Math.sqrt(sumSqResid / n);
     }
 
-    private double computeSuitabilityScore(double meanSlope, double roughness, double threshold) {
-        double slopeScore     = Math.max(0, 1.0 - meanSlope   / threshold);
-        double roughnessScore = Math.max(0, 1.0 - roughness   / 0.5);
-        return (slopeScore * 0.7 + roughnessScore * 0.3);
+    /**
+     * Suitability in [0,1]: a decision-support score, not a physical measurement.
+     * 70% comes from how gentle the mean slope is relative to the requested
+     * threshold, 30% from how smooth (low-roughness) the ground is. 1.0 = flat and
+     * smooth; it falls toward 0 as the terrain gets steeper or more irregular.
+     */
+    private double computeSuitabilityScore(double meanSlope, double roughnessM, double slopeThreshold) {
+        double slopeScore     = Math.max(0, 1.0 - meanSlope  / slopeThreshold);
+        double roughnessScore = Math.max(0, 1.0 - roughnessM / ROUGHNESS_SUITABILITY_REF_M);
+        return slopeScore * 0.7 + roughnessScore * 0.3;
     }
 }
