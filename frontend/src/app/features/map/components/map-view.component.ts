@@ -138,11 +138,13 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
 
   enableEditing(): void {
     if (!this.activeDeployment) return;
-    this.pendingControlPoints = this.activeDeployment.controlPoints ?? [];
-    if (!this.pendingControlPoints.length) {
+    const cps = this.activeDeployment.controlPoints ?? [];
+    if (!cps.length) {
       this.errorMessage = "This deployment has no editable control points.";
       return;
     }
+    // Work on copies so a Cancel leaves the original geometry untouched.
+    this.pendingControlPoints = cps.map(cp => ({ ...cp }));
     this.editingControlPoints = true;
     // Draw the draggable handles on the map first, then enable dragging on them.
     this.mapService.renderControlPoints(
@@ -150,6 +152,12 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     this.mapService.enableControlPointEditing((idx, lat, lon) => {
       const cp = this.pendingControlPoints.find(p => p.pointIndex === idx);
       if (cp) { cp.lat = lat; cp.lon = lon; }
+      // Live preview: redraw the polygon smoothly from the current anchors, so you see
+      // the reshaped (and still curved) geometry before saving.
+      this.mapService.renderPreviewFromControlPoints(
+        [...this.pendingControlPoints]
+          .sort((a, b) => a.pointIndex - b.pointIndex)
+          .map(p => ({ lat: p.lat, lon: p.lon })));
     });
   }
 
@@ -164,6 +172,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
         this.editingControlPoints = false;
         this.activeDeployment = d;
         this.mapService.disableControlPointEditing();
+        this.mapService.clearControlPoints();
         if (d.geometry?.geojson) this.mapService.renderDeploymentGeometry(d.geometry.geojson);
         const idx = this.deployments.findIndex(x => x.deploymentUid === d.deploymentUid);
         if (idx !== -1) this.deployments = [...this.deployments.slice(0, idx), d, ...this.deployments.slice(idx + 1)];
@@ -175,6 +184,11 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   cancelEditing(): void {
     this.editingControlPoints = false;
     this.mapService.disableControlPointEditing();
+    this.mapService.clearControlPoints();
+    // Discard the in-progress preview and restore the saved geometry unchanged.
+    if (this.activeDeployment?.geometry?.geojson) {
+      this.mapService.renderDeploymentGeometry(this.activeDeployment.geometry.geojson);
+    }
   }
 
   private renderControlPoints(d: DeploymentResponse): void {

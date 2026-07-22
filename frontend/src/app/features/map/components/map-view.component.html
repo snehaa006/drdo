@@ -75,8 +75,8 @@
         <div class="dep-detail__uid">UID: {{ activeDeployment.deploymentUid }}</div>
 
         <div class="dep-detail__params" *ngIf="activeDeployment.parameters">
-          <div class="param-row"><span>Frontage</span><span>{{ activeDeployment.parameters.frontageM }} m</span></div>
-          <div class="param-row"><span>Depth</span><span>{{ activeDeployment.parameters.depthM }} m</span></div>
+          <div class="param-row"><span>Frontage</span><span>{{ activeDeployment.parameters.frontageM / 1000 | number:'1.0-3' }} km</span></div>
+          <div class="param-row"><span>Depth</span><span>{{ activeDeployment.parameters.depthM / 1000 | number:'1.0-3' }} km</span></div>
           <div class="param-row"><span>Slope Threshold</span><span>{{ activeDeployment.parameters.slopeThresholdDegrees }}°</span></div>
           <div class="param-row"><span>Heading</span><span>{{ activeDeployment.parameters.headingDegrees ?? 0 }}°</span></div>
           <div class="param-row"><span>Geometry Type</span><span>{{ activeDeployment.geometry?.geometryType }}</span></div>

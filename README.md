@@ -213,7 +213,7 @@ clicking the map (or typing Lat/Lon) → **Compute Geometry** draws a deployment
 | 1 | Open http://localhost:8080 | Base map renders (falls back to a coordinate grid if no imagery). |
 | 2 | Click **+ NEW DEPLOYMENT** | The **Deployment Parameters** panel opens with Latitude/Longitude fields. |
 | 3 | Type Latitude `28.6`, Longitude `77.2` **or** click on the map | Lat/Lon fill in; **Compute Geometry** enables. |
-| 4 | Set Frontage `250`, Depth `125`, click **COMPUTE GEOMETRY** | Map pans to the point and draws a polygon; detail panel shows Geometry Type + Terrain Analysis. |
+| 4 | Set Frontage `2`, Depth `1` (in **km**), click **COMPUTE GEOMETRY** | Map pans to the point and draws a polygon; detail panel shows Geometry Type + Terrain Analysis. |
 | 5 | Look at **Terrain Analysis** | Suitability %, PLANAR/NON-PLANAR, mean/max slope, elevation, samples. |
 | 6 | On a **NON-PLANAR** deployment: **✎ EDIT GEOMETRY**, drag a control point, **✔ SAVE EDITS** | Geometry reshapes and persists. |
 | 7 | Select a deployment in the left list | Map pans to it, shows its geometry + details. |

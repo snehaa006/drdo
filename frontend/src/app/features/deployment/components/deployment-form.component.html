@@ -31,17 +31,17 @@
     </div>
 
     <div class="form-row">
-      <label>Frontage (m)</label>
-      <input type="number" formControlName="frontageM" min="1" />
-      <span class="err" *ngIf="form.get('frontageM')?.invalid && form.get('frontageM')?.touched">
+      <label>Frontage (km)</label>
+      <input type="number" formControlName="frontageKm" min="0.001" step="0.1" />
+      <span class="err" *ngIf="form.get('frontageKm')?.invalid && form.get('frontageKm')?.touched">
         must be greater than 0
       </span>
     </div>
 
     <div class="form-row">
-      <label>Depth (m)</label>
-      <input type="number" formControlName="depthM" min="1" />
-      <span class="err" *ngIf="form.get('depthM')?.invalid && form.get('depthM')?.touched">
+      <label>Depth (km)</label>
+      <input type="number" formControlName="depthKm" min="0.001" step="0.1" />
+      <span class="err" *ngIf="form.get('depthKm')?.invalid && form.get('depthKm')?.touched">
         must be greater than 0
       </span>
     </div>

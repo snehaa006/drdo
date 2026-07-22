@@ -152,6 +152,58 @@ export class OlMapService {
     });
   }
 
+  /**
+   * Live edit preview: rebuild the deployment polygon from the current anchors using
+   * the SAME smooth Catmull-Rom Bézier the backend applies on save, so the shape updates
+   * as you drag and matches what SAVE will persist. Does NOT refit the view (that would
+   * fight the drag). `points` must be in ring order (by point index).
+   */
+  renderPreviewFromControlPoints(points: Array<{ lat: number; lon: number }>): void {
+    if (points.length < 3) return;
+    const ring = this.catmullRomBezierRing(points).map(([lon, lat]) => fromLonLat([lon, lat]));
+    const source = this.deploymentLayer.getSource()!;
+    source.clear();
+    source.addFeature(new Feature({ geometry: new Polygon([ring]) }));
+  }
+
+  /** Removes the draggable control-point markers (used on save/cancel). */
+  clearControlPoints(): void {
+    this.controlPointLayer.getSource()?.clear();
+  }
+
+  /** Closed smooth curve through the anchors — mirrors BezierEngine on the backend
+   *  (Catmull-Rom tangents, tension 0.4, one cubic Bézier per segment). Returns
+   *  [lon, lat] pairs in WGS84. */
+  private catmullRomBezierRing(
+    pts: Array<{ lat: number; lon: number }>, tension = 0.4, steps = 32
+  ): number[][] {
+    const n = pts.length;
+    const h = pts.map((p, i) => {
+      const prev = pts[(i - 1 + n) % n], next = pts[(i + 1) % n];
+      const tx = (next.lon - prev.lon) * tension;
+      const ty = (next.lat - prev.lat) * tension;
+      return { inLon: p.lon - tx / 3, inLat: p.lat - ty / 3,
+               outLon: p.lon + tx / 3, outLat: p.lat + ty / 3 };
+    });
+    const ring: number[][] = [];
+    for (let i = 0; i < n; i++) {
+      const p0 = pts[i], p1 = pts[(i + 1) % n];
+      const ax = p0.lon, ay = p0.lat;
+      const bx = h[i].outLon, by = h[i].outLat;
+      const cx = h[(i + 1) % n].inLon, cy = h[(i + 1) % n].inLat;
+      const dx = p1.lon, dy = p1.lat;
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps, mt = 1 - t;
+        ring.push([
+          mt*mt*mt*ax + 3*mt*mt*t*bx + 3*mt*t*t*cx + t*t*t*dx,
+          mt*mt*mt*ay + 3*mt*mt*t*by + 3*mt*t*t*cy + t*t*t*dy
+        ]);
+      }
+    }
+    ring.push(ring[0]);
+    return ring;
+  }
+
   enableControlPointEditing(
     onMove: (idx: number, lat: number, lon: number) => void
   ): void {

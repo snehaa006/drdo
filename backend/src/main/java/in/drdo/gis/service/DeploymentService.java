@@ -15,6 +15,8 @@ import org.locationtech.jts.io.WKTWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -173,23 +175,40 @@ public class DeploymentService {
         Deployment d = deploymentRepo.findByDeploymentUid(uid)
             .orElseThrow(() -> new DeploymentNotFoundException(uid));
 
+        // Take the incoming anchors in ring order (by point index).
+        List<ControlPointDto> incoming = dto.getControlPoints().stream()
+            .sorted(Comparator.comparingInt(cp -> cp.getPointIndex() != null ? cp.getPointIndex() : 0))
+            .collect(Collectors.toList());
+        int n = incoming.size();
+        double[] lats = new double[n];
+        double[] lons = new double[n];
+        for (int i = 0; i < n; i++) { lats[i] = incoming.get(i).getLat(); lons[i] = incoming.get(i).getLon(); }
+
+        // Re-derive smooth Catmull-Rom handles from the (possibly-dragged) anchor positions,
+        // exactly as the original geometry did (tension 0.4). The handles the client sends are
+        // stale after a drag — they were computed for the OLD anchor positions — which is what
+        // made an edited shape come out pointed instead of curved. Recomputing keeps it smooth.
+        double[][] handles = bezierEngine.generateSmoothHandles(lats, lons, 0.4);
+
         cpRepo.deleteByDeploymentId(d.getId());
-        List<ControlPoint> savedCps = dto.getControlPoints().stream().map(cpDto -> {
+        List<ControlPoint> savedCps = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            ControlPointDto cpDto = incoming.get(i);
             ControlPoint cp = ControlPoint.builder()
                 .deployment(d)
-                .pointIndex(cpDto.getPointIndex())
-                .pointType(ControlPoint.PointType.BEZIER_HANDLE)
+                .pointIndex(cpDto.getPointIndex() != null ? cpDto.getPointIndex() : i)
+                .pointType(ControlPoint.PointType.ANCHOR)
                 .lat(cpDto.getLat())
                 .lon(cpDto.getLon())
                 .geom(GeoUtils.createPoint(cpDto.getLon(), cpDto.getLat()))
-                .handleLat1(cpDto.getHandleLat1())
-                .handleLon1(cpDto.getHandleLon1())
-                .handleLat2(cpDto.getHandleLat2())
-                .handleLon2(cpDto.getHandleLon2())
+                .handleLat1(handles[i][0])
+                .handleLon1(handles[i][1])
+                .handleLat2(handles[i][2])
+                .handleLon2(handles[i][3])
                 .isLocked(cpDto.getIsLocked() != null && cpDto.getIsLocked())
                 .build();
-            return cpRepo.save(cp);
-        }).collect(Collectors.toList());
+            savedCps.add(cpRepo.save(cp));
+        }
 
         // Regenerate geometry from updated control points
         DeploymentGeometry dg = geomRepo.findByDeploymentId(d.getId()).orElse(new DeploymentGeometry());
