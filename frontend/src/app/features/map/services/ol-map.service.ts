@@ -171,6 +171,27 @@ export class OlMapService {
     this.controlPointLayer.getSource()?.clear();
   }
 
+  /** Bounding-box size (metres) of the smooth footprint through the given anchors — lets
+   *  the UI show frontage/depth live while editing (matches what save will persist). */
+  footprintSizeFromControlPoints(
+    points: Array<{ lat: number; lon: number }>
+  ): { frontageM: number; depthM: number } | null {
+    if (points.length < 3) return null;
+    const ring = this.catmullRomBezierRing(points);
+    let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    for (const [lon, lat] of ring) {
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+    const cLat = (minLat + maxLat) / 2;
+    return {
+      frontageM: (maxLon - minLon) * 111320 * Math.cos((cLat * Math.PI) / 180),
+      depthM: (maxLat - minLat) * 111320
+    };
+  }
+
   /** Closed smooth curve through the anchors — mirrors BezierEngine on the backend
    *  (Catmull-Rom tangents, tension 0.4, one cubic Bézier per segment). Returns
    *  [lon, lat] pairs in WGS84. */

@@ -235,7 +235,7 @@ lat/lon/slope/heading, or a zero/negative frontage/depth, disable Compute or ret
 | Point with no DTED tile | Mean Elevation **0 m**, **100% PLANAR**, an **ELLIPSE** (safe fallback). |
 | Slope threshold 90 | Treated as planar → **ELLIPSE**. |
 | Slope threshold 0 (on any slope) | Treated as non-planar → **BÉZIER_ADAPTIVE**. |
-| An **ELLIPSE** result | **EDIT GEOMETRY hidden** — only adaptive shapes are editable, by design. |
+| An **ELLIPSE** result | Still editable — **EDIT GEOMETRY** derives draggable anchors from the footprint; saving a reshape turns it into a custom Bézier. |
 | No base map present | Map falls back to a coordinate grid — never blank. |
 
 ---
@@ -320,7 +320,7 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 |---------|-------------|
 | "Validation failed" / HTTP 400 on create | A value is out of range — lat/lon/slope/heading (see Section 7), or a frontage/depth that isn't a positive number. Correct the input. |
 | **COMPUTE GEOMETRY** stays greyed out | Latitude/Longitude empty or out of range → enter valid coordinates (type or click the map). |
-| **EDIT GEOMETRY** button missing | The deployment is an **ELLIPSE** (planar) — only adaptive Bézier shapes are editable. By design. |
+| **EDIT GEOMETRY** button missing | Only shown when a deployment is selected — pick one from the left list (or create one) first. All shapes, including ellipses, are editable. |
 | Geometry shows **INVALID** | Rare; the polygon couldn't be repaired → note the coordinates/params and report. |
 
 ---

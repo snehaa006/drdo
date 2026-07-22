@@ -232,17 +232,19 @@ public class DeploymentService {
         // suitability must be recomputed — sample the new polygon's bounding box (the same
         // basis the original analysis used: a bbox around the footprint).
         DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
-        Envelope env = poly.getEnvelopeInternal();
-        double cLat = (env.getMinY() + env.getMaxY()) / 2.0;
-        double cLon = (env.getMinX() + env.getMaxX()) / 2.0;
-        double effFrontageM = (env.getMaxX() - env.getMinX()) * 111320.0 * Math.cos(Math.toRadians(cLat));
-        double effDepthM    = (env.getMaxY() - env.getMinY()) * 111320.0;
-        double heading = d.getHeadingDegrees() != null ? d.getHeadingDegrees() : 0.0;
-        double slopeThreshold = (p != null && p.getSlopeThresholdDegrees() != null)
-            ? p.getSlopeThresholdDegrees()
-            : gisProperties.getTerrain().getSlopeThresholdDefault();
-        TerrainEngine.TerrainResult tr =
-            terrainEngine.analyse(cLat, cLon, effFrontageM, effDepthM, heading, slopeThreshold);
+
+        // Keep frontage/depth in step with the reshaped footprint (its bounding-box size in
+        // metres), so the parameters reflect the actual geometry rather than the size that
+        // was originally requested at creation.
+        if (p != null) {
+            Envelope pe = poly.getEnvelopeInternal();
+            double bLat = (pe.getMinY() + pe.getMaxY()) / 2.0;
+            p.setFrontageM((pe.getMaxX() - pe.getMinX()) * 111320.0 * Math.cos(Math.toRadians(bLat)));
+            p.setDepthM((pe.getMaxY() - pe.getMinY()) * 111320.0);
+            paramsRepo.save(p);
+        }
+
+        TerrainEngine.TerrainResult tr = analyseFootprint(poly, headingOf(d), slopeThresholdOf(p));
 
         TerrainAnalysis ta = terrainRepo.findByDeploymentId(d.getId())
             .orElseGet(() -> TerrainAnalysis.builder().deployment(d).build());
@@ -284,7 +286,81 @@ public class DeploymentService {
         deploymentRepo.delete(d);
     }
 
+    /**
+     * Terrain analysis for a proposed set of edited control points, WITHOUT persisting
+     * anything. Lets the UI show live terrain stats while a geometry is being dragged —
+     * it builds the same smooth footprint {@link #updateControlPoints} would save and
+     * analyses it, so the preview matches the eventual saved result.
+     */
+    // Not readOnly: terrain sampling may lazily cache a terrain_tile row the first time a
+    // DTED cell is touched. It never writes deployment / geometry / terrain-analysis data.
+    @Transactional
+    public TerrainAnalysisDto previewTerrain(String uid, ControlPointUpdateDto dto) {
+        Deployment d = deploymentRepo.findByDeploymentUid(uid)
+            .orElseThrow(() -> new DeploymentNotFoundException(uid));
+        DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
+        Polygon poly = smoothBezierFromDtos(dto.getControlPoints());
+        return toTerrainDto(analyseFootprint(poly, headingOf(d), slopeThresholdOf(p)));
+    }
+
     // ------------------------------------------------------------------ //
+
+    private double headingOf(Deployment d) {
+        return d.getHeadingDegrees() != null ? d.getHeadingDegrees() : 0.0;
+    }
+
+    private double slopeThresholdOf(DeploymentParameters p) {
+        return (p != null && p.getSlopeThresholdDegrees() != null)
+            ? p.getSlopeThresholdDegrees()
+            : gisProperties.getTerrain().getSlopeThresholdDefault();
+    }
+
+    /** Builds the smooth closed Bézier footprint from anchor DTOs (recomputing handles),
+     *  the same way an edit is persisted — used for both preview and (indirectly) save. */
+    private Polygon smoothBezierFromDtos(List<ControlPointDto> incoming) {
+        List<ControlPointDto> ordered = incoming.stream()
+            .sorted(Comparator.comparingInt(cp -> cp.getPointIndex() != null ? cp.getPointIndex() : 0))
+            .collect(Collectors.toList());
+        int n = ordered.size();
+        if (n < 3) throw new IllegalArgumentException("Need at least 3 control points for a footprint");
+        double[] lats = new double[n], lons = new double[n];
+        for (int i = 0; i < n; i++) { lats[i] = ordered.get(i).getLat(); lons[i] = ordered.get(i).getLon(); }
+        double[][] handles = bezierEngine.generateSmoothHandles(lats, lons, 0.4);
+        List<ControlPoint> cps = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            cps.add(ControlPoint.builder()
+                .pointIndex(ordered.get(i).getPointIndex() != null ? ordered.get(i).getPointIndex() : i)
+                .lat(lats[i]).lon(lons[i])
+                .handleLat1(handles[i][0]).handleLon1(handles[i][1])
+                .handleLat2(handles[i][2]).handleLon2(handles[i][3])
+                .build());
+        }
+        return bezierEngine.buildBezierPolygon(cps, gisProperties.getGeometry().getBezierSmoothingSteps());
+    }
+
+    /** Runs terrain analysis over a footprint polygon's bounding box. */
+    private TerrainEngine.TerrainResult analyseFootprint(Polygon poly, double heading, double slopeThreshold) {
+        Envelope env = poly.getEnvelopeInternal();
+        double cLat = (env.getMinY() + env.getMaxY()) / 2.0;
+        double cLon = (env.getMinX() + env.getMaxX()) / 2.0;
+        double effFrontageM = (env.getMaxX() - env.getMinX()) * 111320.0 * Math.cos(Math.toRadians(cLat));
+        double effDepthM    = (env.getMaxY() - env.getMinY()) * 111320.0;
+        return terrainEngine.analyse(cLat, cLon, effFrontageM, effDepthM, heading, slopeThreshold);
+    }
+
+    private TerrainAnalysisDto toTerrainDto(TerrainEngine.TerrainResult tr) {
+        TerrainAnalysisDto dto = new TerrainAnalysisDto();
+        dto.setMeanElevationM(tr.meanElevationM());
+        dto.setMinElevationM(tr.minElevationM());
+        dto.setMaxElevationM(tr.maxElevationM());
+        dto.setMeanSlopeDegrees(tr.meanSlopeDegrees());
+        dto.setMaxSlopeDegrees(tr.maxSlopeDegrees());
+        dto.setTerrainRoughness(tr.terrainRoughness());
+        dto.setSuitabilityScore(tr.suitabilityScore());
+        dto.setIsPlanar(tr.isPlanar());
+        dto.setSampleCount(tr.sampleCount());
+        return dto;
+    }
 
     private DeploymentResponseDto toResponseDto(Deployment d, DeploymentParameters p,
                                                  DeploymentGeometry g, TerrainAnalysis ta) {

@@ -14,7 +14,7 @@
         + NEW DEPLOYMENT
       </button>
       <button class="toolbar__btn toolbar__btn--edit"
-              *ngIf="activeDeployment && !editingControlPoints && activeDeployment.geometry?.geometryType !== 'ELLIPSE'"
+              *ngIf="activeDeployment && !editingControlPoints"
               (click)="enableEditing()">
         ✎ EDIT GEOMETRY
       </button>
@@ -75,8 +75,8 @@
         <div class="dep-detail__uid">UID: {{ activeDeployment.deploymentUid }}</div>
 
         <div class="dep-detail__params" *ngIf="activeDeployment.parameters">
-          <div class="param-row"><span>Frontage</span><span>{{ activeDeployment.parameters.frontageM / 1000 | number:'1.0-3' }} km</span></div>
-          <div class="param-row"><span>Depth</span><span>{{ activeDeployment.parameters.depthM / 1000 | number:'1.0-3' }} km</span></div>
+          <div class="param-row"><span>Frontage</span><span>{{ displayFrontageKm | number:'1.0-3' }} km</span></div>
+          <div class="param-row"><span>Depth</span><span>{{ displayDepthKm | number:'1.0-3' }} km</span></div>
           <div class="param-row"><span>Slope Threshold</span><span>{{ activeDeployment.parameters.slopeThresholdDegrees }}°</span></div>
           <div class="param-row"><span>Heading</span><span>{{ activeDeployment.parameters.headingDegrees ?? 0 }}°</span></div>
           <div class="param-row"><span>Geometry Type</span><span>{{ activeDeployment.geometry?.geometryType }}</span></div>
@@ -90,7 +90,9 @@
           </div>
         </div>
 
-        <app-terrain-panel [terrain]="activeDeployment.terrainAnalysis ?? null"></app-terrain-panel>
+        <app-terrain-panel
+          [terrain]="(editingControlPoints && previewTerrain) ? previewTerrain : (activeDeployment.terrainAnalysis ?? null)">
+        </app-terrain-panel>
 
         <div class="dep-detail__actions">
           <button class="btn btn--secondary btn--sm" (click)="activeDeployment = null">✕ Close</button>
