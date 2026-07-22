@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 /**
@@ -41,17 +43,33 @@ public class DtedReader {
      *  file's own UHL header origin — so it works for ANY folder layout / casing. */
     private volatile Map<String, String> dtedIndex;
 
+    /** Each covering DTED tile is read into memory ONCE (all elevation posts) and cached
+     *  by its 1° cell, so every subsequent sample is an in-memory bilinear lookup rather
+     *  than a fresh file open + header parse. This is what lets a large deployment be
+     *  sampled at full resolution (millions of points) in well under a second. */
+    private final Map<String, LoadedTile> cellCache   = new ConcurrentHashMap<>();
+    /** Cells known to have no covering DTED tile — avoids re-querying over empty areas. */
+    private final Set<String>             missingCells = ConcurrentHashMap.newKeySet();
+
     /**
-     * Returns the elevation in metres for the given WGS84 coordinate.
-     * Looks up the covering tile, reads and bilinearly interpolates.
+     * Returns the elevation in metres for the given WGS84 coordinate by bilinear
+     * interpolation from the covering DTED tile (0 if no tile covers the point).
      */
     public double getElevation(double lat, double lon) {
+        String cellKey = (int) Math.floor(lat) + "_" + (int) Math.floor(lon);
+        LoadedTile lt = cellCache.get(cellKey);
+        if (lt != null) return lt.elevationAt(lat, lon);
+        if (missingCells.contains(cellKey)) return 0.0;
+
         TerrainTile tile = resolveTile(lat, lon);
         if (tile == null) {
-            log.warn("No DTED tile found for {}/{}, returning 0", lat, lon);
+            if (missingCells.add(cellKey)) {
+                log.warn("No DTED tile for cell {} — treating that area as elevation 0", cellKey);
+            }
             return 0.0;
         }
-        return readElevationFromTile(tile, lat, lon);
+        lt = cellCache.computeIfAbsent(cellKey, k -> loadTile(tile));
+        return lt.elevationAt(lat, lon);
     }
 
     /** Batch elevation sampling over a regular grid inside the given bbox. */
@@ -181,64 +199,63 @@ public class DtedReader {
         }
     }
 
-    private double readElevationFromTile(TerrainTile tile, double lat, double lon) {
+    /** Reads an entire DTED tile into memory once: header params + every elevation post.
+     *  DTED data records are one per longitude line (west→east), each holding all the
+     *  latitude posts (south→north) as big-endian signed 16-bit values. */
+    private LoadedTile loadTile(TerrainTile tile) {
         Path path = Path.of(tile.getFilePath());
         if (!Files.exists(path)) {
             throw new TerrainDataException("DTED tile file missing: " + path);
         }
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
-            // Parse UHL to extract origin and post spacing
             byte[] uhl = new byte[UHL_SIZE];
-            raf.read(uhl);
-
-            double originLon = parseDtedCoord(uhl, 4,  8);  // DLON field
-            double originLat = parseDtedCoord(uhl, 12, 8);  // DLAT field
-            double lonInterval = parseDtedInterval(uhl, 20); // in arc-seconds
+            raf.readFully(uhl);
+            double lonInterval = parseDtedInterval(uhl, 20); // arc-seconds
             double latInterval = parseDtedInterval(uhl, 24);
-            int numLonLines   = parseShort(uhl, 47);
-            int numLatPoints  = parseShort(uhl, 51);
+            int numLonLines  = parseShort(uhl, 47);
+            int numLatPoints = parseShort(uhl, 51);
+            int recordLen = 8 + 2 * numLatPoints + 4; // 8-byte header + posts + 4-byte checksum
 
-            double normLat = lat - tile.getMinLat();
-            double normLon = lon - tile.getMinLon();
-
-            double lonIdxF = (normLon * 3600.0) / lonInterval;
-            double latIdxF = (normLat * 3600.0) / latInterval;
-
-            int lonIdx = (int) Math.floor(lonIdxF);
-            int latIdx = (int) Math.floor(latIdxF);
-
-            lonIdx = Math.max(0, Math.min(lonIdx, numLonLines - 2));
-            latIdx = Math.max(0, Math.min(latIdx, numLatPoints - 2));
-
-            double fracLon = lonIdxF - lonIdx;
-            double fracLat = latIdxF - latIdx;
-
-            // Each data record: 8-byte header + 2*numLatPoints bytes + 4-byte checksum
-            int recordLen = 8 + 2 * numLatPoints + 4;
-
-            short e00 = readPost(raf, lonIdx,     latIdx,     numLatPoints, recordLen);
-            short e10 = readPost(raf, lonIdx + 1, latIdx,     numLatPoints, recordLen);
-            short e01 = readPost(raf, lonIdx,     latIdx + 1, numLatPoints, recordLen);
-            short e11 = readPost(raf, lonIdx + 1, latIdx + 1, numLatPoints, recordLen);
-
-            // Bilinear interpolation
-            double e = (1 - fracLon) * ((1 - fracLat) * e00 + fracLat * e01)
-                     + fracLon      * ((1 - fracLat) * e10 + fracLat * e11);
-            return e;
-
+            short[][] posts = new short[numLonLines][numLatPoints];
+            byte[] rec = new byte[recordLen];
+            for (int lonLine = 0; lonLine < numLonLines; lonLine++) {
+                raf.seek((long) HEADER_TOTAL + (long) lonLine * recordLen);
+                raf.readFully(rec);
+                ByteBuffer bb = ByteBuffer.wrap(rec).order(ByteOrder.BIG_ENDIAN);
+                bb.position(8); // skip the per-record header
+                short[] col = posts[lonLine];
+                for (int latPt = 0; latPt < numLatPoints; latPt++) {
+                    col[latPt] = bb.getShort();
+                }
+            }
+            log.info("Loaded DTED tile {} ({}×{} posts) into memory",
+                     path.getFileName(), numLonLines, numLatPoints);
+            return new LoadedTile(tile.getMinLat(), tile.getMinLon(),
+                                  lonInterval, latInterval, numLonLines, numLatPoints, posts);
         } catch (IOException ex) {
             throw new TerrainDataException("Failed reading DTED tile: " + path, ex);
         }
     }
 
-    private short readPost(RandomAccessFile raf, int lonIdx, int latIdx,
-                            int numLatPoints, int recordLen) throws IOException {
-        long offset = (long) HEADER_TOTAL + (long) lonIdx * recordLen + 8 + (long) latIdx * 2;
-        raf.seek(offset);
-        byte[] buf = new byte[2];
-        raf.readFully(buf);
-        // DTED posts are big-endian signed 16-bit
-        return ByteBuffer.wrap(buf).order(ByteOrder.BIG_ENDIAN).getShort();
+    /** A DTED tile fully in memory, sampled by in-place bilinear interpolation. */
+    private record LoadedTile(double minLat, double minLon,
+                              double lonIntervalSec, double latIntervalSec,
+                              int numLonLines, int numLatPoints,
+                              short[][] posts) {
+        double elevationAt(double lat, double lon) {
+            double lonIdxF = ((lon - minLon) * 3600.0) / lonIntervalSec;
+            double latIdxF = ((lat - minLat) * 3600.0) / latIntervalSec;
+            int lonIdx = Math.max(0, Math.min((int) Math.floor(lonIdxF), numLonLines - 2));
+            int latIdx = Math.max(0, Math.min((int) Math.floor(latIdxF), numLatPoints - 2));
+            double fracLon = lonIdxF - lonIdx;
+            double fracLat = latIdxF - latIdx;
+            double e00 = posts[lonIdx][latIdx];
+            double e10 = posts[lonIdx + 1][latIdx];
+            double e01 = posts[lonIdx][latIdx + 1];
+            double e11 = posts[lonIdx + 1][latIdx + 1];
+            return (1 - fracLon) * ((1 - fracLat) * e00 + fracLat * e01)
+                 + fracLon      * ((1 - fracLat) * e10 + fracLat * e11);
+        }
     }
 
     /** Parse DTED DDMMSS.SH coordinate string from byte array at offset. */

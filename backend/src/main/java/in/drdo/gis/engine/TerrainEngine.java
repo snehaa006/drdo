@@ -27,14 +27,17 @@ public class TerrainEngine {
     // reference value scales roughness into the [0,1] suitability contribution.
     private static final double PLANAR_ROUGHNESS_MAX_M = 2.0;
     private static final double ROUGHNESS_SUITABILITY_REF_M = 15.0;
-    // Adaptive sampling grid bounds. The number of rows/cols is chosen per request so
-    // the spacing between samples stays close to the configured sample distance
+    // Adaptive sampling grid. The number of rows/cols is chosen per request so the
+    // spacing between samples stays close to the configured sample distance
     // (~30 m ≈ DTED resolution), regardless of the deployment size — a large area is
     // sampled just as finely as a small one instead of being stretched over a fixed
     // 11×11 grid. GRID_MIN keeps small areas well-sampled (and leaves room for the
-    // 3×3 slope stencil); GRID_MAX bounds memory/compute for very large areas.
-    private static final int GRID_MIN = 11;
-    private static final int GRID_MAX = 501;
+    // 3×3 slope stencil). MAX_GRID_POINTS bounds total memory/compute: if the ~30 m
+    // grid would exceed it, both axes are scaled down together so the spacing stays
+    // uniform (e.g. a 100 km × 45 km area still samples at ~34 m). 4M points is a
+    // ~32 MB grid — trivial for the DTED reader, which holds each tile in memory.
+    private static final int  GRID_MIN = 11;
+    private static final long MAX_GRID_POINTS = 4_000_000L;
     // Cap on how many samples are stored per deployment (the full dense grid drives the
     // statistics; persisting every point of a large grid would flood the database).
     private static final int PERSIST_PER_SIDE = 15;
@@ -102,9 +105,16 @@ public class TerrainEngine {
 
         // Adaptive grid: pick enough rows/cols that the spacing between samples stays
         // ~= sampleDistM in both directions, so terrain features aren't skipped over on
-        // large deployments. Clamped to [GRID_MIN, GRID_MAX].
-        int cols = clampGrid((int) Math.round(frontageM / sampleDistM) + 1);
-        int rows = clampGrid((int) Math.round(depthM    / sampleDistM) + 1);
+        // large deployments. If that exceeds MAX_GRID_POINTS, scale both axes down
+        // together so the spacing stays uniform.
+        int cols = Math.max(GRID_MIN, (int) Math.round(frontageM / sampleDistM) + 1);
+        int rows = Math.max(GRID_MIN, (int) Math.round(depthM    / sampleDistM) + 1);
+        long totalPts = (long) rows * cols;
+        if (totalPts > MAX_GRID_POINTS) {
+            double scale = Math.sqrt((double) MAX_GRID_POINTS / totalPts);
+            cols = Math.max(GRID_MIN, (int) Math.round(cols * scale));
+            rows = Math.max(GRID_MIN, (int) Math.round(rows * scale));
+        }
 
         double[][] elevGrid = dtedReader.sampleGrid(minLat, minLon, maxLat, maxLon, rows, cols);
         double latStep = (maxLat - minLat) / (rows - 1);
@@ -182,12 +192,6 @@ public class TerrainEngine {
             n,          // total points analysed across the dense grid
             samples     // bounded, evenly-spaced subset for persistence
         );
-    }
-
-    private static int clampGrid(int v) {
-        if (v < GRID_MIN) return GRID_MIN;
-        if (v > GRID_MAX) return GRID_MAX;
-        return v;
     }
 
     /**

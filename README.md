@@ -19,7 +19,7 @@ the API on **http://localhost:8080**.
 1. [What's in this folder](#1-whats-in-this-folder)
 2. [Prerequisites](#2-prerequisites)
 3. [Set up the database in pgAdmin](#3-set-up-the-database-in-pgadmin)
-4. [Configure the app](#4-configure-the-app)
+4. [Tell the app how to connect — and confirm it worked](#4-tell-the-app-how-to-connect--and-confirm-it-worked)
 5. [Run it](#5-run-it)
 6. [Verify it works](#6-verify-it-works)
 7. [Using the app](#7-using-the-app)
@@ -71,57 +71,93 @@ rebuilding the jar (Section 10), which DRDO does not need to do.
 
 ## 3. Set up the database in pgAdmin
 
-You already have pgAdmin and it connects to PostgreSQL, so the server is running
-(usually on port **5432** — see *right-click the server → Properties → Connection →
-Port*). Do everything below in pgAdmin's **Query Tool** — the `psql` command line is
-**not required** at any point.
+### First, the mental model (this clears up the usual confusion)
 
-**3.1** Create the database: right-click *Databases → Create → Database*, name it
-**`drdo_gis`**.
+- **PostgreSQL is a background service.** It's always running and listening on a
+  network **port** (almost always **5432**). It is *not* something you "start in a
+  terminal."
+- **The app connects to that port over the network** (a protocol called JDBC) — the
+  **exact same way pgAdmin connects to it.** So: **if pgAdmin can open the server, the
+  app can reach it too.** There is nothing extra to "connect."
+- **You do NOT need `psql`.** `psql` is a separate command-line program that is usually
+  not on the PATH, which is why typing `psql` "does nothing" or says *command not
+  found*. **Ignore it completely.** Everything below is done in pgAdmin's **Query
+  Tool** (a window inside pgAdmin where you type SQL and press ▶ Run).
 
-**3.2** Create the login role: right-click *Login/Group Roles → Create → Login/Group
-Role*, name **`drdo_user`**; on the *Definition* tab set password **`drdo_secret`**; on
-the *Privileges* tab turn on *Can login?*.
+So the database work is just: create a database, create a login, turn on PostGIS —
+all clicks and SQL inside pgAdmin. Then you write those same names into one text file
+so the app knows where to connect.
 
-**3.3** Open the **Query Tool on `drdo_gis`** (click the `drdo_gis` database, then the
-Query Tool button) and run the following **as the `postgres` superuser** — enabling an
-extension needs superuser rights, so do it once here and the app never has to:
+### The steps
+
+**3.1 — Create the database.** In pgAdmin's left tree, right-click *Databases → Create
+→ Database*. Name it **`drdo_gis`**. Save.
+
+**3.2 — Create the login role.** Right-click *Login/Group Roles → Create → Login/Group
+Role*. Name it **`drdo_user`**. On the **Definition** tab, set the password to
+**`drdo_secret`**. On the **Privileges** tab, turn **Can login?** on. Save.
+
+**3.3 — Turn on PostGIS.** Click the **`drdo_gis`** database once to select it, then
+open the **Query Tool** (the ▶_ icon, or right-click → *Query Tool*). Make sure you are
+connected as the **`postgres`** superuser (the account pgAdmin normally uses). Paste
+this and press **▶ Run**:
 ```sql
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS postgis_topology;
 GRANT ALL ON SCHEMA public TO drdo_user;
 GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;
 ```
+If it runs without an error, the database side is **done**. **Do not create any
+tables** — the app builds them itself on first start.
 
-That's the whole database setup — **do not create any tables**, the app creates them
-itself on first start. Because you enabled PostGIS here as superuser, the app's own
-`CREATE EXTENSION IF NOT EXISTS` step later is a harmless no-op even though `drdo_user`
-is a normal (non-superuser) role.
-
-> **"Is the database connected to the terminal / running on a port?"** You don't connect
-> a terminal to it. PostgreSQL runs as a background service on a TCP port (5432 by
-> default). The app connects to that port over the network (JDBC), exactly the way
-> pgAdmin does. **If pgAdmin can connect, the app can too** — you don't need `psql`.
-
-> **If you really want `psql` (optional):** it ships inside PostgreSQL's `bin` folder but
-> is usually not on PATH — that's why `psql` "isn't found". Full path examples: Windows
-> `"C:\Program Files\PostgreSQL\15\bin\psql.exe"`, Linux `/usr/bin/psql`. Then
-> `psql -h localhost -p 5432 -U drdo_user -d drdo_gis`. But the pgAdmin Query Tool does
-> everything psql would.
+> If line 1 fails with *"could not open extension control file … postgis"*, PostGIS
+> is not installed on this PostgreSQL — install the PostGIS package/bundle (Section 2)
+> and run 3.3 again. This is the one thing that can genuinely block you.
 
 ---
 
-## 4. Configure the app
+## 4. Tell the app how to connect — and confirm it worked
 
-`deploy/manual/application.properties` is read fresh every time you start the app, so you
-change settings **without rebuilding anything**. The defaults match Section 3:
+The app reads its connection settings from one plain text file:
+**`deploy/manual/application.properties`**. Open it in any editor. It already contains:
 ```properties
 spring.datasource.url=jdbc:postgresql://localhost:5432/drdo_gis
 spring.datasource.username=drdo_user
 spring.datasource.password=drdo_secret
 ```
-If you created the database with a different name/user/password or on a different
-host/port, edit these three lines and save. If you used the names above, change nothing.
+
+Each part comes straight from what you did in Section 3 — this table is the whole
+mapping:
+
+| In the file | What it is | Where it comes from |
+|---|---|---|
+| `localhost` | the machine PostgreSQL runs on | almost always this machine → `localhost` (in pgAdmin: *server → Properties → Connection → Host*) |
+| `5432` | the **port** PostgreSQL listens on | pgAdmin: *server → Properties → Connection → Port* (usually 5432) |
+| `drdo_gis` | the **database name** | the database you made in 3.1 |
+| `username` | the **login role** | the role you made in 3.2 (`drdo_user`) |
+| `password` | that role's **password** | what you set in 3.2 (`drdo_secret`) |
+
+**If you used the exact names above, change nothing** — the defaults already match.
+Only edit this file if your database name, user, password, host, or port are different.
+The file is read fresh at every start, so you never rebuild anything to change it.
+
+### How to know the connection actually worked
+
+You don't test the connection separately — **you just start the app (Section 5) and
+watch its window.** One of two things happens:
+
+- ✅ **It connected:** you'll see lines like `HikariPool-1 - Start completed`, then
+  Liquibase creating tables, then **`Started GisDeploymentApplication`**. Open
+  `http://localhost:8080/api/actuator/health` → `{"status":"UP"}`. That means the app
+  reached the database, logged in, and built its tables. Done.
+- ❌ **It couldn't connect:** the window prints a clear reason and stops. The three
+  common ones and their exact fix are in **Section 9 → Database** — e.g.
+  *Connection refused* = wrong host/port (or PostgreSQL not running),
+  *password authentication failed* = wrong user/password in this file,
+  *permission denied to create extension* = you skipped step 3.3.
+
+In other words: **the app starting up with no database error IS the proof the
+connection is correct.** There's nothing else to wire up.
 
 ---
 
