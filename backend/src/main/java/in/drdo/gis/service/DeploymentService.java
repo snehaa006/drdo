@@ -10,6 +10,7 @@ import in.drdo.gis.util.GeoJsonWriter;
 import in.drdo.gis.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.io.WKTWriter;
 import org.springframework.stereotype.Service;
@@ -226,11 +227,53 @@ public class DeploymentService {
         dg.setIsValid(poly.isValid());
         geomRepo.save(dg);
 
+        // Re-run terrain analysis over the EDITED footprint. Reshaping the geometry moves
+        // the deployment over different ground, so elevation / slope / roughness /
+        // suitability must be recomputed — sample the new polygon's bounding box (the same
+        // basis the original analysis used: a bbox around the footprint).
+        DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
+        Envelope env = poly.getEnvelopeInternal();
+        double cLat = (env.getMinY() + env.getMaxY()) / 2.0;
+        double cLon = (env.getMinX() + env.getMaxX()) / 2.0;
+        double effFrontageM = (env.getMaxX() - env.getMinX()) * 111320.0 * Math.cos(Math.toRadians(cLat));
+        double effDepthM    = (env.getMaxY() - env.getMinY()) * 111320.0;
+        double heading = d.getHeadingDegrees() != null ? d.getHeadingDegrees() : 0.0;
+        double slopeThreshold = (p != null && p.getSlopeThresholdDegrees() != null)
+            ? p.getSlopeThresholdDegrees()
+            : gisProperties.getTerrain().getSlopeThresholdDefault();
+        TerrainEngine.TerrainResult tr =
+            terrainEngine.analyse(cLat, cLon, effFrontageM, effDepthM, heading, slopeThreshold);
+
+        TerrainAnalysis ta = terrainRepo.findByDeploymentId(d.getId())
+            .orElseGet(() -> TerrainAnalysis.builder().deployment(d).build());
+        ta.setMeanElevationM(tr.meanElevationM());
+        ta.setMinElevationM(tr.minElevationM());
+        ta.setMaxElevationM(tr.maxElevationM());
+        ta.setMeanSlopeDegrees(tr.meanSlopeDegrees());
+        ta.setMaxSlopeDegrees(tr.maxSlopeDegrees());
+        ta.setTerrainRoughness(tr.terrainRoughness());
+        ta.setSuitabilityScore(tr.suitabilityScore());
+        ta.setIsPlanar(tr.isPlanar());
+        ta.setSampleCount(tr.sampleCount());
+        ta = terrainRepo.save(ta);
+
+        // Replace the stored slope samples with those from the new footprint.
+        if (ta.getId() != null) slopeRepo.deleteByTerrainAnalysisId(ta.getId());
+        for (TerrainEngine.SlopeSample s : tr.slopeSamples()) {
+            slopeRepo.save(SlopeAnalysis.builder()
+                .terrainAnalysis(ta)
+                .samplePoint(GeoUtils.createPoint(s.lon(), s.lat()))
+                .elevationM(s.elevationM())
+                .slopeDegrees(s.slopeDegrees())
+                .aspectDegrees(s.aspectDegrees())
+                .slopeNs(s.slopeNs())
+                .slopeEw(s.slopeEw())
+                .build());
+        }
+
         d.setStatus(Deployment.DeploymentStatus.EDITED);
         deploymentRepo.save(d);
 
-        DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
-        TerrainAnalysis ta     = terrainRepo.findByDeploymentId(d.getId()).orElse(null);
         return toResponseDto(d, p, dg, ta);
     }
 
