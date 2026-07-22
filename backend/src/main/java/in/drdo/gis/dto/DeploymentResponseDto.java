@@ -2,6 +2,7 @@ package in.drdo.gis.dto;
 
 import lombok.Data;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 @Data
 public class DeploymentResponseDto {
@@ -15,6 +16,7 @@ public class DeploymentResponseDto {
     private DeploymentParametersDto parameters;
     private DeploymentGeometryDto geometry;
     private TerrainAnalysisDto terrainAnalysis;
+    private List<ControlPointDto> controlPoints;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

@@ -1,11 +1,11 @@
-# DRDO GIS — Offline Guide
+# DRDO GIS — Offline Guide (Windows)
 
 Terrain-aware deployment-geometry system that runs **fully offline** on the DRDO
-machine. This is the **only** document you need — setup, running, configuration,
+Windows machine. This is the **only** document you need — setup, running, configuration,
 testing, and every error and its fix.
 
 - **Backend + UI** — one Java jar (Spring Boot 3, GeoTools, JTS, PostGIS + Angular 15)
-- **Database** — PostgreSQL with PostGIS (set up with pgAdmin on Windows, or `sudo -u postgres psql` on Linux)
+- **Database** — PostgreSQL with PostGIS (set up with pgAdmin)
 
 **No Docker. No Python. No Node. No Maven. No internet.** The app ships prebuilt as a
 single jar (`deploy/manual/backend.jar`, committed in this repo), so on the target
@@ -17,7 +17,7 @@ the API on **http://localhost:8080**.
 ## Contents
 
 1. [What's in this folder](#1-whats-in-this-folder)
-2. [Prerequisites — check & install (Windows or Linux)](#2-prerequisites--check-whats-there-install-whats-missing)
+2. [Prerequisites — check & install](#2-prerequisites--check-whats-there-install-whats-missing)
 3. [Set up the database](#3-set-up-the-database)
 4. [Tell the app how to connect — and confirm it worked](#4-tell-the-app-how-to-connect--and-confirm-it-worked)
 5. [Run it](#5-run-it)
@@ -34,43 +34,38 @@ the API on **http://localhost:8080**.
 
 | Path | Purpose |
 |------|---------|
-| `deploy/manual/backend.jar` | **The whole app** (API + web UI) in one file — run with Java. |
-| `deploy/manual/run.bat` / `run.sh` | Start scripts — double-click `run.bat` on Windows. |
-| `deploy/manual/application.properties` | Editable DB settings (no rebuild needed). |
-| `data/terrain/geotiff/india_basemap.tif` | India base map (EPSG:3857) — replace with DRDO's. |
-| `data/terrain/dted/` | Sample DTED tiles — replace with DRDO's `.dt1` files. |
-| `backend/` , `frontend/` | Source — only needed to *rebuild* the jar (Section 10). |
+| `deploy\manual\backend.jar` | **The whole app** (API + web UI) in one file — run with Java. |
+| `deploy\manual\run.bat` | Start script — **double-click it** to launch the app. |
+| `deploy\manual\application.properties` | Editable DB and port settings (no rebuild needed). |
+| `data\terrain\geotiff\india_basemap.tif` | India base map (EPSG:3857) — replace with DRDO's. |
+| `data\terrain\dted\` | Sample DTED tiles — replace with DRDO's `.dt1` files. |
+| `backend\` , `frontend\` | Source — only needed to *rebuild* the jar (Section 10). |
 
 ---
 
 ## 2. Prerequisites — check what's there, install what's missing
 
-This works on **both Windows and Linux**. If you're not sure which the remote machine
-is: a **Start button + taskbar** (and a *Command Prompt*) = **Windows**; a Linux desktop
-with a **Terminal** = **Linux**. Follow the column that matches. (Nothing else is needed
-— no Docker, Python, Node, or Maven.)
-
-Three things must be present:
+Everything runs on **Windows**. Three things must be present. (Nothing else is needed —
+no Docker, Python, Node, or Maven.)
 
 | # | What | How to check it's present |
 |---|------|---------------------------|
-| 1 | **Java 17+** | In a command window type `java -version` → shows 17 or higher |
-| 2 | **PostgreSQL 15+**, running | **Windows:** *Services* shows a running *postgresql-x64-…*. **Linux:** `pg_isready` → *accepting connections* |
+| 1 | **Java 17+** | Open **Command Prompt** and type `java -version` → shows 17 or higher |
+| 2 | **PostgreSQL 15+**, running | *Services* (press <kbd>Win</kbd>+<kbd>R</kbd> → `services.msc`) shows a running *postgresql-x64-…* |
 | 3 | **PostGIS** (add-on inside PostgreSQL) | Trying to enable it in Section 3 either succeeds, or errors with *"could not open extension control file"* (= not installed) |
 
-### Install what's missing (offline — carry the installers in)
+### Install what's missing (offline — carry the installers in on a USB)
 
-| Missing | Windows | Linux |
-|---|---|---|
-| **Java 17** | Eclipse **Temurin 17 `.msi`** (adoptium.net) — tick *Add to PATH* | `sudo apt install openjdk-17-jre` · or `sudo dnf install java-17-openjdk` · or the Temurin `.tar.gz` |
-| **PostgreSQL (+ pgAdmin)** | **EDB PostgreSQL 15 `.exe`** (enterprisedb.com) — installs the server **and** pgAdmin together. **Write down the `postgres` password it makes you set** — you need it to open pgAdmin. | `sudo apt install postgresql` · or `sudo dnf install postgresql-server && sudo postgresql-setup --initdb`, then `sudo systemctl enable --now postgresql` |
-| **PostGIS** | EDB **StackBuilder → Spatial Extensions → PostGIS**, or the standalone **PostGIS bundle `.exe`** for PG 15 | `sudo apt install postgresql-15-postgis-3` · or `sudo dnf install postgis` |
-| **pgAdmin** | *(already inside the EDB installer above)* | Optional: `sudo apt install pgadmin4-desktop` — on Linux the terminal is enough |
+| Missing | Installer |
+|---|---|
+| **Java 17** | Eclipse **Temurin 17 `.msi`** (adoptium.net) — during install, tick *Add to PATH*. |
+| **PostgreSQL (+ pgAdmin)** | **EDB PostgreSQL 15 `.exe`** (enterprisedb.com) — installs the server **and** pgAdmin together. **Write down the `postgres` password it makes you set** — you need it to open pgAdmin. |
+| **PostGIS** | EDB **StackBuilder → Spatial Extensions → PostGIS**, or the standalone **PostGIS bundle `.exe`** for PG 15. |
+| **pgAdmin** | *(already inside the EDB installer above)* |
 
-> **Offline (air-gapped):** download every installer/package **with its dependencies**
-> while you still have internet and carry them on the USB. Windows = the `.msi`/`.exe`
-> files. Linux = `apt-get download <pkg>` (or `apt-offline`) / `dnf download --resolve
-> <pkg>` on a same-OS machine, then `sudo dpkg -i *.deb` / `sudo dnf install ./*.rpm`.
+> **Offline (air-gapped):** download every `.msi`/`.exe` installer while you still have
+> internet and carry them on the USB. All of the above are single self-contained
+> installers — no dependency resolution needed.
 
 Once #1–#3 are present, continue to Section 3.
 
@@ -79,25 +74,12 @@ Once #1–#3 are present, continue to Section 3.
 ## 3. Set up the database
 
 ### The mental model (read this first)
-- PostgreSQL is a **service on port 5432**, always running. The app connects to it over
-  the network (JDBC) — there's nothing to "keep open" in a terminal.
-- The whole job is: create a database, create a login role, turn on PostGIS. Do it the
-  way that matches your OS below — **both produce exactly the same result.**
+- PostgreSQL is a **Windows service on port 5432**, always running. The app connects to
+  it over the network (JDBC) — there's nothing to "keep open" in a window.
+- The whole job is: create a database, create a login role, turn on PostGIS. Do it in
+  **pgAdmin** (installed with PostgreSQL).
 
-### On Linux — from a terminal
-The admin command is **`sudo -u postgres psql`**. (Plain `psql` fails because it logs in
-as *your* Linux username, which has no database role — **that's the usual "psql doesn't
-work" confusion.**)
-```bash
-sudo -u postgres psql -c "CREATE DATABASE drdo_gis;"
-sudo -u postgres psql -c "CREATE ROLE drdo_user LOGIN PASSWORD 'drdo_secret';"
-sudo -u postgres psql -d drdo_gis -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-sudo -u postgres psql -d drdo_gis -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
-sudo -u postgres psql -d drdo_gis -c "GRANT ALL ON SCHEMA public TO drdo_user;"
-sudo -u postgres psql -d drdo_gis -c "GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;"
-```
-
-### On Windows — with pgAdmin (it comes with the EDB install)
+### In pgAdmin
 1. Open **pgAdmin 4** (set a master password the first time — that's pgAdmin's own).
    Under **Servers**, double-click *PostgreSQL 15* and enter the **`postgres` password
    you set during install**. *(If no server is listed: right-click **Servers → Register
@@ -114,30 +96,33 @@ sudo -u postgres psql -d drdo_gis -c "GRANT ALL PRIVILEGES ON DATABASE drdo_gis 
    GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;
    ```
 
-**Either way: do not create any tables** — the app builds them itself on first start.
+**Do not create any tables** — the app builds them itself on first start.
 
 > If the PostGIS line fails with *"could not open extension control file … postgis"*,
 > PostGIS isn't installed — add it (Section 2) and run that line again. This is the one
 > thing that can genuinely block you.
 
-### Confirm it worked (both OSes)
+### Confirm it worked
 Test the **exact login the app uses** — over the network, as `drdo_user`, with the
-password:
-```bash
-PGPASSWORD=drdo_secret psql -h localhost -U drdo_user -d drdo_gis -c "SELECT 1;"
+password. In pgAdmin, open a **Query Tool connected as `drdo_user` on `drdo_gis`** and run:
+```sql
+SELECT 1;
 ```
-*(On Windows, run this in a terminal if `psql` is on your PATH — it's in
-`C:\Program Files\PostgreSQL\15\bin` — or just open a pgAdmin Query Tool connected as
-**`drdo_user`** on **`drdo_gis`** and run `SELECT 1;`.)* If it returns `1`, **the app
-will connect too.** If it errors on authentication (Linux), see **Section 9 → Database**
-for the one-line `pg_hba.conf` fix.
+*(Or from Command Prompt, if `psql` is on your PATH — it's in
+`C:\Program Files\PostgreSQL\15\bin`:*
+```bat
+set PGPASSWORD=drdo_secret
+psql -h localhost -U drdo_user -d drdo_gis -c "SELECT 1;"
+```
+*)* If it returns `1`, **the app will connect too.**
 
 ---
 
 ## 4. Tell the app how to connect — and confirm it worked
 
 The app reads its connection settings from one plain text file:
-**`deploy/manual/application.properties`**. Open it in any editor. It already contains:
+**`deploy\manual\application.properties`**. Open it in **Notepad** (or any editor). It
+already contains:
 ```properties
 spring.datasource.url=jdbc:postgresql://localhost:5432/drdo_gis
 spring.datasource.username=drdo_user
@@ -150,7 +135,7 @@ mapping:
 | In the file | What it is | Where it comes from |
 |---|---|---|
 | `localhost` | the machine PostgreSQL runs on | this same machine → `localhost` |
-| `5432` | the **port** PostgreSQL listens on | the default (confirm with `pg_isready`, which reports the port) |
+| `5432` | the **port** PostgreSQL listens on | the default (shown in pgAdmin under *Properties → Connection*) |
 | `drdo_gis` | the **database name** | the `CREATE DATABASE` in Section 3 |
 | `username` = `drdo_user` | the **login role** | the `CREATE ROLE` in Section 3 |
 | `password` = `drdo_secret` | that role's **password** | the `PASSWORD '…'` you set on that role in Section 3 |
@@ -172,7 +157,7 @@ watch its window.** One of two things happens:
   common ones and their exact fix are in **Section 9 → Database** — e.g.
   *Connection refused* = wrong host/port (or PostgreSQL not running),
   *password authentication failed* = wrong user/password in this file,
-  *permission denied to create extension* = you skipped step 3.3.
+  *permission denied to create extension* = you skipped step 3.4.
 
 In other words: **the app starting up with no database error IS the proof the
 connection is correct.** There's nothing else to wire up.
@@ -181,39 +166,36 @@ connection is correct.** There's nothing else to wire up.
 
 ## 5. Run it
 
-In a terminal on the Linux machine, from the project folder:
-```bash
-./deploy/manual/run.sh
-```
-(If it says permission denied: `chmod +x deploy/manual/run.sh` once, then re-run.
-On Windows the equivalent is double-clicking `deploy\manual\run.bat`.)
+**Double-click `deploy\manual\run.bat`.** A console window opens.
 
 Wait for the line **`Started GisDeploymentApplication`**, then open
 **http://localhost:8080** in a browser. The **same** jar serves the web UI (at `/`) and
 the API (at `/api/v1`) on port 8080. On first run it creates all tables in `drdo_gis`.
-Leave the window open; stop it with `Ctrl+C` or by closing the window.
+Leave the window open; stop it by closing the window or pressing `Ctrl+C`.
 
-> Plain Java without the script, from the repo root:
-> ```bash
-> java -jar deploy/manual/backend.jar \
->   --spring.config.additional-location=optional:file:deploy/manual/application.properties \
->   --gis.terrain.dted-base-path="$PWD/data/terrain/dted" \
->   --gis.terrain.geotiff-base-path="$PWD/data/terrain/geotiff"
+> Plain Java without the script, from a Command Prompt in the repo root:
+> ```bat
+> java -jar deploy\manual\backend.jar ^
+>   --spring.config.additional-location="optional:file:deploy\manual\application.properties" ^
+>   --gis.terrain.dted-base-path="%CD%\data\terrain\dted" ^
+>   --gis.terrain.geotiff-base-path="%CD%\data\terrain\geotiff"
 > ```
 
 To reach it from another PC on the LAN: browse to `http://<server-ip>:8080` (the jar
-already listens on all interfaces; open port 8080 in the firewall).
+already listens on all interfaces; open port 8080 in Windows Firewall).
 
 ---
 
 ## 6. Verify it works
 
-```bash
-curl http://localhost:8080/api/actuator/health          # -> {"status":"UP"}
-curl http://localhost:8080/api/v1/tiles/geotiff          # -> lists india_basemap.tif
-curl http://localhost:8080/api/v1/deployments            # -> [] (or your deployments)
+In a Command Prompt (Windows 10+ has `curl` built in):
+```bat
+curl http://localhost:8080/api/actuator/health
+curl http://localhost:8080/api/v1/tiles/geotiff
+curl http://localhost:8080/api/v1/deployments
 ```
-In the run window's log, look for:
+Expected: `{"status":"UP"}`, then a list containing `india_basemap.tif`, then `[]` (or
+your deployments). In the run window's log, look for:
 ```
 Registered 1 new GeoTIFF tiles
 Indexed N DTED tile(s) by header origin ...   (N > 0 means DTED was found)
@@ -260,23 +242,21 @@ lat/lon/slope/heading, or a zero/negative frontage/depth, disable Compute or ret
 
 ## 8. Terrain data
 
-The run scripts point the app at this project's `data/terrain/` automatically. To use
-DRDO's own folders, either edit the `gis.terrain.*` lines in `application.properties`, or
-append the path when starting:
-```bash
-./deploy/manual/run.sh --gis.terrain.dted-base-path=/mnt/drdo/dted
-```
+`run.bat` points the app at this project's `data\terrain\` automatically. To use DRDO's
+own folders, either edit the `gis.terrain.*` lines in `application.properties`, or append
+the path when starting:
 ```bat
 run.bat --gis.terrain.dted-base-path=C:/drdo/dted
 ```
+*(Use forward slashes in the path, even on Windows.)*
 
 **DTED** (`.dt0/.dt1/.dt2`) — **layout and file-name casing don't matter**; each file
 records the 1° cell it covers in its own header, so the reader finds the right tile
-regardless of naming (`n28/e077.dt1`, `E077/N28.DT1`, or one flat folder all work). A
+regardless of naming (`E077\N28.DT1`, `n28\e077.dt1`, or one flat folder all work). A
 location with no covering tile is treated as flat (elevation 0) with a logged warning, so
 a partial DTED set still works for its area.
 
-**GeoTIFF base map** — `data/terrain/geotiff/india_basemap.tif` ships and is
+**GeoTIFF base map** — `data\terrain\geotiff\india_basemap.tif` ships and is
 auto-discovered on startup. Replace it with DRDO's aerial/satellite `.tif` for production;
 it should be **Web-Mercator (EPSG:3857)** so it lines up in the browser. Set
 `gis.terrain.default-base-map=<their-file>.tif` and restart. Reproject others once on a
@@ -289,29 +269,27 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 ### Starting the app
 | Symptom | Cause → Fix |
 |---------|-------------|
-| `java: command not found` | Java not installed / on PATH → install Java 17+ (Temurin), reopen the terminal. |
+| `'java' is not recognized` | Java not installed / on PATH → install Java 17+ (Temurin) with *Add to PATH*, reopen the Command Prompt. |
 | `UnsupportedClassVersionError` | Java too old → needs **Java 17 or newer**. |
-| `run.bat`/`run.sh` prints "'java' was not found" | Same — install Java 17+ so `java -version` works. |
+| `run.bat` prints "'java' was not found" | Same — install Java 17+ so `java -version` works. |
 | `no main manifest attribute` / jar won't run | `backend.jar` is truncated (partial copy/clone) → re-copy it; it should be ~82 MB. |
 | **`Web server failed to start. Port 8080 was already in use`** (window closes) | Something is already on 8080 — **usually an earlier copy of this app still running.** See "Port 8080 already in use" just below. |
-| Port 8080 already in use — how to fix | **First check what's on it.** Windows: `netstat -ano \| findstr :8080` → the last number is the PID → `taskkill /F /PID <pid>` (or `taskkill /F /IM java.exe` to end all Java). Linux: `sudo lsof -i :8080` → `kill <pid>`. Often it's a previous run of this app — killing it, then re-running, is all you need (keep using 8080). **To actually change the port instead:** don't edit `application.yml` (it's inside the jar). Either uncomment `server.port=8081` in `deploy/manual/application.properties`, **or** run `deploy\manual\run.bat --server.port=8081`. Then open `http://localhost:8081`. |
+| Port 8080 already in use — how to fix | **First check what's on it:** `netstat -ano \| findstr :8080` → the last number is the PID → `taskkill /F /PID <pid>` (or `taskkill /F /IM java.exe` to end all Java). Often it's a previous run of this app — killing it, then re-running, is all you need (keep using 8080). **To change the port instead:** the port is **not** baked in the jar — change the `server.port=8080` line in `deploy\manual\application.properties` to your port (e.g. `server.port=8081`), **or** run `deploy\manual\run.bat --server.port=8081`. Then open `http://localhost:8081`. |
 | Already have it running? | If a previous window is still open and reached `Started`, the app is already up — just open **http://localhost:8080** in the browser; don't start a second copy. |
 | Nothing at http://localhost:8080 | Wrong port (it's **8080**, not 4200), or the log hasn't reached `Started` yet — wait for that line. |
 
 ### Database
 | Symptom | Cause → Fix |
 |---------|-------------|
-| PostgreSQL not running | **Linux:** `sudo systemctl enable --now postgresql` (RHEL first time also `sudo postgresql-setup --initdb`). **Windows:** open *Services*, Start *postgresql-x64-15*. Confirm with `pg_isready`. |
-| **Windows:** pgAdmin won't connect / no server listed | Register it: right-click *Servers → Register → Server*; Host `localhost`, Port `5432`, user `postgres`, the password set during install. |
-| **Linux:** `psql` says *role "yourname" does not exist* | You ran plain `psql` (logs in as your Linux user). Use **`sudo -u postgres psql`** for admin SQL (§3). |
-| `psql: command not found` | **Linux:** `sudo apt install postgresql-client` (or `dnf install postgresql`). **Windows:** it's not on PATH — use pgAdmin's Query Tool, or the full path `"C:\Program Files\PostgreSQL\15\bin\psql.exe"`. |
-| App: `password authentication failed for user "drdo_user"` | The role's password ≠ the one in `application.properties`. Reset it (via `sudo -u postgres psql` or a pgAdmin Query Tool): `ALTER ROLE drdo_user PASSWORD 'drdo_secret';` |
-| **Linux:** App: `no pg_hba.conf entry …` **or** `peer`/`ident authentication failed` | PostgreSQL isn't allowing password login over TCP. `sudo -u postgres psql -tc "SHOW hba_file;"` to find the file, ensure `host all all 127.0.0.1/32 scram-sha-256` is present, then `sudo systemctl reload postgresql`. |
-| App: `Connection refused` to `localhost:5432` | PostgreSQL not running, or a different port — check `pg_isready` and match host/port in `application.properties`. |
+| PostgreSQL not running | Open *Services* (`services.msc`), Start *postgresql-x64-15*. Confirm the service status is *Running*. |
+| pgAdmin won't connect / no server listed | Register it: right-click *Servers → Register → Server*; Host `localhost`, Port `5432`, user `postgres`, the password set during install. |
+| `psql` is not recognized | It's not on PATH — use pgAdmin's Query Tool, or the full path `"C:\Program Files\PostgreSQL\15\bin\psql.exe"`. |
+| App: `password authentication failed for user "drdo_user"` | The role's password ≠ the one in `application.properties`. Reset it in a pgAdmin Query Tool: `ALTER ROLE drdo_user PASSWORD 'drdo_secret';` |
+| App: `Connection refused` to `localhost:5432` | PostgreSQL not running, or a different port — check the *postgresql* service is Running and match host/port in `application.properties`. |
 | App: `database "drdo_gis" does not exist` | Run the `CREATE DATABASE` step in §3. |
 | `could not open extension control file … postgis` | PostGIS not installed → install it (Section 2), then re-run the PostGIS line in §3. |
-| **Windows:** forgot the `postgres` password | It was set at install time; recoverable only by temporarily editing `pg_hba.conf` to `trust` (ask your PostgreSQL admin). |
-| `Could not acquire change log lock` | A previous run crashed mid-migration → run `DELETE FROM databasechangeloglock;` on `drdo_gis` (`sudo -u postgres psql -d drdo_gis`, or a pgAdmin Query Tool), then restart. |
+| Forgot the `postgres` password | It was set at install time; recoverable only by temporarily editing `pg_hba.conf` to `trust` (ask your PostgreSQL admin). |
+| `Could not acquire change log lock` | A previous run crashed mid-migration → run `DELETE FROM databasechangeloglock;` on `drdo_gis` (a pgAdmin Query Tool), then restart. |
 | Want a clean/empty database | Drop & recreate: `DROP DATABASE drdo_gis;` then re-run §3 (⚠ deletes all saved deployments). |
 
 ### Web UI (served by the same jar on 8080)
@@ -352,13 +330,13 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 You do **not** need this to run at DRDO. It's only for changing the code.
 
 - **Backend + bundled UI:** `cd backend && mvn clean package` → copy
-  `target/gis-deployment-system-1.0.0-SNAPSHOT.jar` over `deploy/manual/backend.jar`. The
-  Angular UI is committed under `backend/src/main/resources/static/`, so the jar already
+  `target\gis-deployment-system-1.0.0-SNAPSHOT.jar` over `deploy\manual\backend.jar`. The
+  Angular UI is committed under `backend\src\main\resources\static\`, so the jar already
   contains the web UI — **Node is not needed to rebuild the backend**. Maven needs a
-  network or a populated `~/.m2`; GeoTools comes from the OSGeo repository in
-  `backend/pom.xml` (not Maven Central), so a mirror must include it. Build with Java 17.
+  network or a populated `.m2`; GeoTools comes from the OSGeo repository in
+  `backend\pom.xml` (not Maven Central), so a mirror must include it. Build with Java 17.
 - **Changing the UI:** `cd frontend && npm install && npm run build`, copy
-  `dist/drdo-gis-frontend/*` into `backend/src/main/resources/static/`, then rebuild the
+  `dist\drdo-gis-frontend\*` into `backend\src\main\resources\static\`, then rebuild the
   backend. For live UI development, run `mvn spring-boot:run` and `npm start` separately
   (UI on http://localhost:4200, calling the API on 8080 with CORS).
 
@@ -372,10 +350,11 @@ You do **not** need this to run at DRDO. It's only for changing the code.
 | API base | http://localhost:8080/api/v1 |
 | Health check | http://localhost:8080/api/actuator/health |
 | Swagger UI | http://localhost:8080/api/swagger-ui.html |
-| Start the app | `./deploy/manual/run.sh` (Linux) · `deploy\manual\run.bat` (Windows) |
-| Config file | `deploy/manual/application.properties` (DB settings) |
+| Start the app | double-click `deploy\manual\run.bat` |
+| Config file | `deploy\manual\application.properties` (DB settings + `server.port`) |
+| Change the web port | edit `server.port=8080` in `application.properties` (not baked into the jar) |
 | Needs on machine | Java 17+ and PostgreSQL+PostGIS — nothing else |
-| Database admin | pgAdmin (Windows) · `sudo -u postgres psql` (Linux) |
+| Database admin | pgAdmin |
 | DTED: any layout? | Yes — files are matched by their header, not their name. |
 | Base map must be | EPSG:3857 GeoTIFF |
 | Set location | Type Lat/Lon **or** click the map |

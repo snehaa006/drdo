@@ -1,8 +1,10 @@
-server:
-  port: 8080
-  # No context-path: this single app serves BOTH the Angular UI (at http://localhost:8080/)
-  # and the REST API (at http://localhost:8080/api/v1/...). The "/api" prefix on the API is
-  # added in WebConfig (only to @RestController classes) so the UI can live at the root.
+# The web UI + API port is NOT baked into this jar. It is set in the editable
+# application.properties next to run.bat / run.sh (server.port=8080 by default), so the
+# port can be changed without rebuilding. If that file is absent, Spring falls back to 8080.
+#
+# No context-path: this single app serves BOTH the Angular UI (at http://localhost:<port>/)
+# and the REST API (at http://localhost:<port>/api/v1/...). The "/api" prefix on the API is
+# added in WebConfig (only to @RestController classes) so the UI can live at the root.
 
 spring:
   application:

@@ -138,10 +138,15 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
 
   enableEditing(): void {
     if (!this.activeDeployment) return;
+    this.pendingControlPoints = this.activeDeployment.controlPoints ?? [];
+    if (!this.pendingControlPoints.length) {
+      this.errorMessage = "This deployment has no editable control points.";
+      return;
+    }
     this.editingControlPoints = true;
-    this.pendingControlPoints = this.activeDeployment.parameters
-      ? ((this.activeDeployment as any).controlPoints ?? [])
-      : [];
+    // Draw the draggable handles on the map first, then enable dragging on them.
+    this.mapService.renderControlPoints(
+      this.pendingControlPoints.map(cp => ({ lat: cp.lat, lon: cp.lon, index: cp.pointIndex })));
     this.mapService.enableControlPointEditing((idx, lat, lon) => {
       const cp = this.pendingControlPoints.find(p => p.pointIndex === idx);
       if (cp) { cp.lat = lat; cp.lon = lon; }
@@ -173,9 +178,8 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private renderControlPoints(d: DeploymentResponse): void {
-    const cps: Array<{ lat: number; lon: number; pointIndex: number }> =
-      (d as any).controlPoints ?? [];
-    this.pendingControlPoints = cps as ControlPoint[];
+    const cps: ControlPoint[] = d.controlPoints ?? [];
+    this.pendingControlPoints = cps;
     this.mapService.renderControlPoints(cps.map(cp => ({
       lat: cp.lat, lon: cp.lon, index: cp.pointIndex
     })));

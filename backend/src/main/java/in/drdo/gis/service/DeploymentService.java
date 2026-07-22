@@ -278,6 +278,27 @@ public class DeploymentService {
             dto.setTerrainAnalysis(tad);
         }
 
+        // Control points drive the "Edit Geometry" tool in the UI; they must be
+        // delivered with every deployment so the client has draggable handles.
+        List<ControlPointDto> cps = cpRepo.findByDeploymentIdOrderByPointIndexAsc(d.getId())
+            .stream().map(this::toControlPointDto).collect(Collectors.toList());
+        dto.setControlPoints(cps);
+
+        return dto;
+    }
+
+    private ControlPointDto toControlPointDto(ControlPoint cp) {
+        ControlPointDto dto = new ControlPointDto();
+        dto.setId(cp.getId());
+        dto.setPointIndex(cp.getPointIndex());
+        dto.setPointType(cp.getPointType() != null ? cp.getPointType().name() : null);
+        dto.setLat(cp.getLat());
+        dto.setLon(cp.getLon());
+        dto.setHandleLat1(cp.getHandleLat1());
+        dto.setHandleLon1(cp.getHandleLon1());
+        dto.setHandleLat2(cp.getHandleLat2());
+        dto.setHandleLon2(cp.getHandleLon2());
+        dto.setIsLocked(cp.getIsLocked());
         return dto;
     }
 }
