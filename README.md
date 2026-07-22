@@ -293,7 +293,9 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 | `UnsupportedClassVersionError` | Java too old → needs **Java 17 or newer**. |
 | `run.bat`/`run.sh` prints "'java' was not found" | Same — install Java 17+ so `java -version` works. |
 | `no main manifest attribute` / jar won't run | `backend.jar` is truncated (partial copy/clone) → re-copy it; it should be ~82 MB. |
-| Port 8080 already in use | Append `--server.port=8081` to the start script, then use that port in the URLs. |
+| **`Web server failed to start. Port 8080 was already in use`** (window closes) | Something is already on 8080 — **usually an earlier copy of this app still running.** See "Port 8080 already in use" just below. |
+| Port 8080 already in use — how to fix | **First check what's on it.** Windows: `netstat -ano \| findstr :8080` → the last number is the PID → `taskkill /F /PID <pid>` (or `taskkill /F /IM java.exe` to end all Java). Linux: `sudo lsof -i :8080` → `kill <pid>`. Often it's a previous run of this app — killing it, then re-running, is all you need (keep using 8080). **To actually change the port instead:** don't edit `application.yml` (it's inside the jar). Either uncomment `server.port=8081` in `deploy/manual/application.properties`, **or** run `deploy\manual\run.bat --server.port=8081`. Then open `http://localhost:8081`. |
+| Already have it running? | If a previous window is still open and reached `Started`, the app is already up — just open **http://localhost:8080** in the browser; don't start a second copy. |
 | Nothing at http://localhost:8080 | Wrong port (it's **8080**, not 4200), or the log hasn't reached `Started` yet — wait for that line. |
 
 ### Database
