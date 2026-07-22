@@ -5,7 +5,7 @@ machine. This is the **only** document you need — setup, running, configuratio
 testing, and every error and its fix.
 
 - **Backend + UI** — one Java jar (Spring Boot 3, GeoTools, JTS, PostGIS + Angular 15)
-- **Database** — PostgreSQL with PostGIS, managed in pgAdmin
+- **Database** — PostgreSQL with PostGIS (set up from the terminal with `sudo -u postgres psql`, or pgAdmin if you prefer a GUI)
 
 **No Docker. No Python. No Node. No Maven. No internet.** The app ships prebuilt as a
 single jar (`deploy/manual/backend.jar`, committed in this repo), so on the target
@@ -17,8 +17,8 @@ the API on **http://localhost:8080**.
 ## Contents
 
 1. [What's in this folder](#1-whats-in-this-folder)
-2. [Prerequisites](#2-prerequisites)
-3. [Set up the database in pgAdmin](#3-set-up-the-database-in-pgadmin)
+2. [Prerequisites — check & install (Linux)](#2-prerequisites--check-whats-there-install-whats-missing-linux)
+3. [Set up the database (Linux)](#3-set-up-the-database-linux)
 4. [Tell the app how to connect — and confirm it worked](#4-tell-the-app-how-to-connect--and-confirm-it-worked)
 5. [Run it](#5-run-it)
 6. [Verify it works](#6-verify-it-works)
@@ -43,104 +43,82 @@ the API on **http://localhost:8080**.
 
 ---
 
-## 2. Prerequisites — check what's there, install what's missing
+## 2. Prerequisites — check what's there, install what's missing (Linux)
 
-Three things must be present on the machine. **This section assumes nothing is
-installed** — first check each one, then install only what's missing. (Nothing else
-is needed: no Docker, Python, Node, or Maven.)
+The machine is **Linux** (you're on it via remote desktop). Only three things must be
+present. Open a terminal, check each, and install only what's missing. Commands are
+shown for **Debian/Ubuntu (`apt`)** and **RHEL/CentOS/Rocky (`dnf`)** — use whichever
+your box is. (Nothing else is needed — no Docker, Python, Node, or Maven.)
 
-| # | What | Why | How to check it's present | If the check fails, it's missing |
-|---|------|-----|---------------------------|----------------------------------|
-| 1 | **Java 17+** | Runs the app | Open a terminal / Command Prompt and type `java -version` | *"'java' is not recognized"* / *command not found* |
-| 2 | **PostgreSQL 15+** | The database engine (the service on port 5432) | Windows: open **Services**, look for a running *postgresql-x64-…* service. Any OS: if pgAdmin (below) can open the server, it's installed and running | No such service, or pgAdmin can't connect |
-| 3 | **pgAdmin 4** | The tool you use to manage the database | Look for **pgAdmin 4** in the Start menu / Applications | Not in the app list |
-| 3b | **PostGIS** (an add-on *inside* PostgreSQL) | Required — the app stores geometry | In pgAdmin's Query Tool run `SELECT postgis_version();` | Error *"could not open extension control file … postgis"* → not installed |
+| # | What | Check it's present (run in a terminal) | Install if missing |
+|---|------|----------------------------------------|--------------------|
+| 1 | **Java 17+** | `java -version` → shows 17 or higher | `sudo apt install openjdk-17-jre` · or `sudo dnf install java-17-openjdk` |
+| 2 | **PostgreSQL 15+**, running | `pg_isready` → *accepting connections* (or `systemctl status postgresql`) | `sudo apt install postgresql` · or `sudo dnf install postgresql-server && sudo postgresql-setup --initdb` — then **start it:** `sudo systemctl enable --now postgresql` |
+| 3 | **PostGIS** (add-on inside PostgreSQL) | `sudo -u postgres psql -c "SELECT name FROM pg_available_extensions WHERE name='postgis';"` → lists `postgis` | `sudo apt install postgresql-15-postgis-3` · or `sudo dnf install postgis` |
 
-> On Windows, the **EDB PostgreSQL installer installs #2 *and* #3 together** (pgAdmin
-> ships inside it), and its **StackBuilder** step adds #3b (PostGIS). So one installer
-> usually covers PostgreSQL + pgAdmin + PostGIS.
+**pgAdmin is optional on Linux** — everything below is done from the terminal with
+`sudo -u postgres psql`. Install it only if you want the GUI
+(`sudo apt install pgadmin4-desktop`).
 
-### Installing what's missing (offline — carry the installers in)
+> **Offline install (air-gapped):** on-site `apt`/`dnf` can't download. On a **connected
+> machine of the same OS + version**, fetch each package **with its dependencies** as
+> files — Debian/Ubuntu: `apt-get download <pkg>` (or the `apt-offline` tool); RHEL:
+> `dnf download --resolve <pkg>` — carry them on the USB, then install on-site with
+> `sudo dpkg -i *.deb` or `sudo dnf install ./*.rpm`. Java can instead be the **Temurin
+> 17 `.tar.gz`** (adoptium.net): unpack it and add its `bin/` to `PATH`.
 
-Download these **while you still have internet**, copy them to the USB alongside this
-project, and run them on the DRDO machine. Pick the ones for the target OS.
-
-| Missing piece | Windows | Linux |
-|---|---|---|
-| **Java 17** | Eclipse **Temurin 17** `.msi` (adoptium.net) — run it, tick *"Add to PATH"* | Temurin 17 `.tar.gz`, or `apt/dnf install` the `openjdk-17-jre` package **+ its dependencies** |
-| **PostgreSQL + pgAdmin** | **EDB PostgreSQL 15** installer `.exe` (enterprisedb.com) — installs the server **and** pgAdmin 4. During install it asks you to **set a password for the `postgres` superuser — write it down, you need it to open pgAdmin** | `postgresql-15` package **+ deps**; install **pgAdmin 4** separately (`pgadmin4` package or the desktop build) |
-| **PostGIS** | In the EDB installer's **StackBuilder** pick *Spatial Extensions → PostGIS* (needs a network on that machine), **or** carry the standalone **PostGIS bundle** `.exe` for PG 15 and run it | `postgresql-15-postgis-3` package **+ deps** |
-
-> **The `postgres` password you set while installing PostgreSQL is the important one** —
-> it's what you'll type to open the server in pgAdmin (Section 3.0). It is *not* the
-> same as the `drdo_user` password you'll create later.
-
-Once #1–#3b are present, continue to Section 3.
+Once #1–#3 are present, continue to Section 3.
 
 ---
 
-## 3. Set up the database in pgAdmin
+## 3. Set up the database (Linux)
 
-### First, the mental model (this clears up the usual confusion)
+### The mental model — this clears up the `psql` confusion
+- PostgreSQL is a **service** listening on port **5432** (check with `pg_isready`). It
+  is not a program you keep open in a terminal.
+- The app connects to that port over the network (JDBC), the same way any client does.
+- **To run SQL as the database administrator on Linux, use `sudo -u postgres psql`.**
+  That logs you in as PostgreSQL's built-in `postgres` superuser with **no password**,
+  through local "peer" authentication. Plain `psql` on its own fails because it tries
+  to log in as *your Linux username*, which has no database role — **that is exactly
+  why your earlier `psql` commands "didn't work."**
 
-- **PostgreSQL is a background service.** It's always running and listening on a
-  network **port** (almost always **5432**). It is *not* something you "start in a
-  terminal."
-- **The app connects to that port over the network** (a protocol called JDBC) — the
-  **exact same way pgAdmin connects to it.** So: **if pgAdmin can open the server, the
-  app can reach it too.** There is nothing extra to "connect."
-- **You do NOT need `psql`.** `psql` is a separate command-line program that is usually
-  not on the PATH, which is why typing `psql` "does nothing" or says *command not
-  found*. **Ignore it completely.** Everything below is done in pgAdmin's **Query
-  Tool** (a window inside pgAdmin where you type SQL and press ▶ Run).
+### The setup — copy-paste these into a terminal
+```bash
+# 1. Create the database and the login role the app will use
+sudo -u postgres psql -c "CREATE DATABASE drdo_gis;"
+sudo -u postgres psql -c "CREATE ROLE drdo_user LOGIN PASSWORD 'drdo_secret';"
 
-So the database work is just: create a database, create a login, turn on PostGIS —
-all clicks and SQL inside pgAdmin. Then you write those same names into one text file
-so the app knows where to connect.
-
-### The steps
-
-**3.0 — Open pgAdmin and connect to the server.** *(This is the step people get stuck
-on — "I made the database but couldn't connect.")*
-
-1. Launch **pgAdmin 4**. The first time, it asks you to set a **master password** —
-   this is pgAdmin's own password (make one up, remember it). It is *not* the database
-   password.
-2. Look at the left tree under **Servers**:
-   - If a server (e.g. *"PostgreSQL 15"*) is already listed, **double-click it** and
-     enter the **`postgres` password you set when installing PostgreSQL** (Section 2).
-   - If **no server is listed**, add one: right-click **Servers → Register → Server**.
-     On the **General** tab give it any name (e.g. `Local`). On the **Connection** tab
-     enter: **Host** `localhost`, **Port** `5432`, **Maintenance database** `postgres`,
-     **Username** `postgres`, **Password** = the `postgres` password from Section 2.
-     Click **Save**.
-3. The tree should now expand to show **Databases**, **Login/Group Roles**, etc. If it
-   does, **pgAdmin is connected to the server** and you can do the rest. If it errors,
-   see Section 9 → Database (usually a wrong password or PostgreSQL not running).
-
-**3.1 — Create the database.** In pgAdmin's left tree, right-click *Databases → Create
-→ Database*. Name it **`drdo_gis`**. Save.
-
-**3.2 — Create the login role.** Right-click *Login/Group Roles → Create → Login/Group
-Role*. Name it **`drdo_user`**. On the **Definition** tab, set the password to
-**`drdo_secret`**. On the **Privileges** tab, turn **Can login?** on. Save.
-
-**3.3 — Turn on PostGIS.** Click the **`drdo_gis`** database once to select it, then
-open the **Query Tool** (the ▶_ icon, or right-click → *Query Tool*). Make sure you are
-connected as the **`postgres`** superuser (the account pgAdmin normally uses). Paste
-this and press **▶ Run**:
-```sql
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS postgis_topology;
-GRANT ALL ON SCHEMA public TO drdo_user;
-GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;
+# 2. Enable PostGIS + grant access — note the '-d drdo_gis' (must be done INSIDE that database)
+sudo -u postgres psql -d drdo_gis -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+sudo -u postgres psql -d drdo_gis -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+sudo -u postgres psql -d drdo_gis -c "GRANT ALL ON SCHEMA public TO drdo_user;"
+sudo -u postgres psql -d drdo_gis -c "GRANT ALL PRIVILEGES ON DATABASE drdo_gis TO drdo_user;"
 ```
-If it runs without an error, the database side is **done**. **Do not create any
-tables** — the app builds them itself on first start.
+If these run without errors, the database is ready — **do not create any tables**, the
+app builds them itself on first start.
 
-> If line 1 fails with *"could not open extension control file … postgis"*, PostGIS
-> is not installed on this PostgreSQL — install the PostGIS package/bundle (Section 2)
-> and run 3.3 again. This is the one thing that can genuinely block you.
+> If step 2 fails with *"could not open extension control file … postgis"*, PostGIS is
+> not installed — install it (Section 2, item 3) and re-run step 2. This is the one
+> thing that can genuinely block you.
+
+### Confirm it works — before you even start the app
+```bash
+# Is PostGIS enabled in drdo_gis?
+sudo -u postgres psql -d drdo_gis -c "SELECT postgis_version();"           # prints a version
+
+# Does the app's exact login work? (over TCP, as drdo_user, with the password)
+PGPASSWORD=drdo_secret psql -h localhost -U drdo_user -d drdo_gis -c "SELECT 1;"
+```
+The **second command connects the exact way the app will.** If it prints a `1`, the app
+will connect too. If it fails with an *authentication* error, that's a one-line
+`pg_hba.conf` fix — see **Section 9 → Database**.
+
+### Prefer pgAdmin's GUI instead? (optional)
+Open pgAdmin → right-click **Servers → Register → Server**; on the **Connection** tab
+set Host `localhost`, Port `5432`, Username `postgres`. Then use its **Query Tool** to
+run the same SQL. On Linux the terminal commands above are simpler and need no extra
+setup, so pgAdmin is entirely optional.
 
 ---
 
@@ -159,11 +137,11 @@ mapping:
 
 | In the file | What it is | Where it comes from |
 |---|---|---|
-| `localhost` | the machine PostgreSQL runs on | almost always this machine → `localhost` (in pgAdmin: *server → Properties → Connection → Host*) |
-| `5432` | the **port** PostgreSQL listens on | pgAdmin: *server → Properties → Connection → Port* (usually 5432) |
-| `drdo_gis` | the **database name** | the database you made in 3.1 |
-| `username` | the **login role** | the role you made in 3.2 (`drdo_user`) |
-| `password` | that role's **password** | what you set in 3.2 (`drdo_secret`) |
+| `localhost` | the machine PostgreSQL runs on | this same machine → `localhost` |
+| `5432` | the **port** PostgreSQL listens on | the default (confirm with `pg_isready`, which reports the port) |
+| `drdo_gis` | the **database name** | the `CREATE DATABASE` in Section 3 |
+| `username` = `drdo_user` | the **login role** | the `CREATE ROLE` in Section 3 |
+| `password` = `drdo_secret` | that role's **password** | the `PASSWORD '…'` you set on that role in Section 3 |
 
 **If you used the exact names above, change nothing** — the defaults already match.
 Only edit this file if your database name, user, password, host, or port are different.
@@ -191,8 +169,12 @@ connection is correct.** There's nothing else to wire up.
 
 ## 5. Run it
 
-- **Windows:** double-click **`deploy\manual\run.bat`** (or run it in a terminal).
-- **Linux / macOS:** `./deploy/manual/run.sh`
+In a terminal on the Linux machine, from the project folder:
+```bash
+./deploy/manual/run.sh
+```
+(If it says permission denied: `chmod +x deploy/manual/run.sh` once, then re-run.
+On Windows the equivalent is double-clicking `deploy\manual\run.bat`.)
 
 Wait for the line **`Started GisDeploymentApplication`**, then open
 **http://localhost:8080** in a browser. The **same** jar serves the web UI (at `/`) and
@@ -302,19 +284,19 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 | Port 8080 already in use | Append `--server.port=8081` to the start script, then use that port in the URLs. |
 | Nothing at http://localhost:8080 | Wrong port (it's **8080**, not 4200), or the log hasn't reached `Started` yet — wait for that line. |
 
-### Database
+### Database (Linux)
 | Symptom | Cause → Fix |
 |---------|-------------|
-| **pgAdmin itself won't connect / no server listed** | Register the server (§3.0) with Host `localhost`, Port `5432`, user `postgres`. If it still fails, PostgreSQL isn't running — Windows: open **Services** and Start the *postgresql-x64-…* service. |
-| **Forgot the `postgres` password** | It was set when PostgreSQL was installed. If lost, it can be reset by editing `pg_hba.conf` to `trust` temporarily (ask your PostgreSQL admin) — there's no way to recover the original. |
-| `Connection refused` to `localhost:5432` | PostgreSQL not running, or wrong host/port → confirm pgAdmin connects; match its host/port in `application.properties`. |
-| `database "drdo_gis" does not exist` | Create it in pgAdmin (§3.1). |
-| `password authentication failed for user "drdo_user"` | Role/password mismatch → align `application.properties` with the pgAdmin role (§3.2). |
-| `could not open extension control file ... postgis` | PostGIS package not installed for this PostgreSQL → install the PostGIS bundle/package, then re-run §3.3. |
-| `permission denied to create extension "postgis"` | You skipped §3.3 → enable PostGIS once **as the `postgres` superuser** in pgAdmin, then start the app. |
-| `Could not acquire change log lock` | A previous run crashed mid-migration → in pgAdmin Query Tool on `drdo_gis`: `DELETE FROM databasechangeloglock;` then restart. |
-| `psql` not recognised in the terminal | Expected — psql isn't on PATH and you don't need it. Use pgAdmin's Query Tool (§3). |
-| Want a clean/empty database | In pgAdmin, drop & recreate `drdo_gis` (⚠ deletes all saved deployments), re-run §3.3, restart the app. |
+| `pg_isready` says *no response* / PostgreSQL not running | Start it: `sudo systemctl enable --now postgresql` (RHEL first-time also needs `sudo postgresql-setup --initdb`). |
+| `psql: command not found` | The client isn't installed → `sudo apt install postgresql-client` (or `dnf install postgresql`). But use **`sudo -u postgres psql`** to run admin SQL (§3). |
+| `psql` runs but says *role "yourname" does not exist* | You ran plain `psql`, which logs in as your Linux user. Use **`sudo -u postgres psql`** instead. |
+| App: `password authentication failed for user "drdo_user"` | The password in `application.properties` doesn't match the role. Re-set it: `sudo -u postgres psql -c "ALTER ROLE drdo_user PASSWORD 'drdo_secret';"` |
+| App: `no pg_hba.conf entry for host …` **or** `Ident/peer authentication failed` for `drdo_user` | PostgreSQL isn't allowing password login over TCP. Find the file: `sudo -u postgres psql -tc "SHOW hba_file;"`, edit it, ensure this line exists near the IPv4 section, then reload: <br>`host  all  all  127.0.0.1/32  scram-sha-256` <br>`sudo systemctl reload postgresql` <br>(Test with the `PGPASSWORD=… psql -h localhost …` command in §3.) |
+| App: `Connection refused` to `localhost:5432` | PostgreSQL not running (`sudo systemctl start postgresql`) or on a different port — check `pg_isready`. |
+| App: `database "drdo_gis" does not exist` | Run the `CREATE DATABASE` in §3. |
+| `could not open extension control file … postgis` | PostGIS not installed → install it (Section 2, item 3), then re-run §3 step 2. |
+| `Could not acquire change log lock` | A previous run crashed mid-migration → `sudo -u postgres psql -d drdo_gis -c "DELETE FROM databasechangeloglock;"` then restart the app. |
+| Want a clean/empty database | `sudo -u postgres psql -c "DROP DATABASE drdo_gis;"` then re-run all of §3 (⚠ deletes all saved deployments). |
 
 ### Web UI (served by the same jar on 8080)
 | Symptom | Cause → Fix |
@@ -374,10 +356,10 @@ You do **not** need this to run at DRDO. It's only for changing the code.
 | API base | http://localhost:8080/api/v1 |
 | Health check | http://localhost:8080/api/actuator/health |
 | Swagger UI | http://localhost:8080/api/swagger-ui.html |
-| Start the app | `deploy\manual\run.bat` (Windows) · `./deploy/manual/run.sh` (Linux/mac) |
+| Start the app | `./deploy/manual/run.sh` (Linux) · `deploy\manual\run.bat` (Windows) |
 | Config file | `deploy/manual/application.properties` (DB settings) |
 | Needs on machine | Java 17+ and PostgreSQL+PostGIS — nothing else |
-| Database admin | pgAdmin (Query Tool) — no psql needed |
+| Database admin | `sudo -u postgres psql` (or pgAdmin if you installed it) |
 | DTED: any layout? | Yes — files are matched by their header, not their name. |
 | Base map must be | EPSG:3857 GeoTIFF |
 | Set location | Type Lat/Lon **or** click the map |
