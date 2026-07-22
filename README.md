@@ -43,29 +43,39 @@ the API on **http://localhost:8080**.
 
 ---
 
-## 2. Prerequisites
+## 2. Prerequisites — check what's there, install what's missing
 
-Only two things must be on the machine:
+Three things must be present on the machine. **This section assumes nothing is
+installed** — first check each one, then install only what's missing. (Nothing else
+is needed: no Docker, Python, Node, or Maven.)
 
-| Tool | Why | Check |
-|------|-----|-------|
-| **Java 17+** (JDK or JRE) | Runs the jar | `java -version` |
-| **PostgreSQL + PostGIS** | The database (you already open it in pgAdmin) | pgAdmin connects |
+| # | What | Why | How to check it's present | If the check fails, it's missing |
+|---|------|-----|---------------------------|----------------------------------|
+| 1 | **Java 17+** | Runs the app | Open a terminal / Command Prompt and type `java -version` | *"'java' is not recognized"* / *command not found* |
+| 2 | **PostgreSQL 15+** | The database engine (the service on port 5432) | Windows: open **Services**, look for a running *postgresql-x64-…* service. Any OS: if pgAdmin (below) can open the server, it's installed and running | No such service, or pgAdmin can't connect |
+| 3 | **pgAdmin 4** | The tool you use to manage the database | Look for **pgAdmin 4** in the Start menu / Applications | Not in the app list |
+| 3b | **PostGIS** (an add-on *inside* PostgreSQL) | Required — the app stores geometry | In pgAdmin's Query Tool run `SELECT postgis_version();` | Error *"could not open extension control file … postgis"* → not installed |
 
-If the machine has nothing installed, install these two from installers you carried
-in (download them while you still have internet):
+> On Windows, the **EDB PostgreSQL installer installs #2 *and* #3 together** (pgAdmin
+> ships inside it), and its **StackBuilder** step adds #3b (PostGIS). So one installer
+> usually covers PostgreSQL + pgAdmin + PostGIS.
 
-- **Java** — Eclipse Temurin 17 (Windows `.msi`, Linux `.tar.gz`, macOS `.pkg`).
-- **PostgreSQL 15 + PostGIS 3.3+** — Windows: the EDB PostgreSQL installer, then the
-  **PostGIS bundle** for that version (grab the bundle file while online — the
-  StackBuilder step needs a network). Linux: `postgresql-15` and
-  `postgresql-15-postgis-3` packages **plus their dependencies**.
+### Installing what's missing (offline — carry the installers in)
 
-> **PostGIS is required and cannot be skipped.** The app stores real geometry and runs
-> spatial queries, so the `postgis` extension must be available for your PostgreSQL.
+Download these **while you still have internet**, copy them to the USB alongside this
+project, and run them on the DRDO machine. Pick the ones for the target OS.
 
-Nothing else is needed — no Maven, Node, `~/.m2`, or `node_modules`. Those are only for
-rebuilding the jar (Section 10), which DRDO does not need to do.
+| Missing piece | Windows | Linux |
+|---|---|---|
+| **Java 17** | Eclipse **Temurin 17** `.msi` (adoptium.net) — run it, tick *"Add to PATH"* | Temurin 17 `.tar.gz`, or `apt/dnf install` the `openjdk-17-jre` package **+ its dependencies** |
+| **PostgreSQL + pgAdmin** | **EDB PostgreSQL 15** installer `.exe` (enterprisedb.com) — installs the server **and** pgAdmin 4. During install it asks you to **set a password for the `postgres` superuser — write it down, you need it to open pgAdmin** | `postgresql-15` package **+ deps**; install **pgAdmin 4** separately (`pgadmin4` package or the desktop build) |
+| **PostGIS** | In the EDB installer's **StackBuilder** pick *Spatial Extensions → PostGIS* (needs a network on that machine), **or** carry the standalone **PostGIS bundle** `.exe` for PG 15 and run it | `postgresql-15-postgis-3` package **+ deps** |
+
+> **The `postgres` password you set while installing PostgreSQL is the important one** —
+> it's what you'll type to open the server in pgAdmin (Section 3.0). It is *not* the
+> same as the `drdo_user` password you'll create later.
+
+Once #1–#3b are present, continue to Section 3.
 
 ---
 
@@ -89,6 +99,24 @@ all clicks and SQL inside pgAdmin. Then you write those same names into one text
 so the app knows where to connect.
 
 ### The steps
+
+**3.0 — Open pgAdmin and connect to the server.** *(This is the step people get stuck
+on — "I made the database but couldn't connect.")*
+
+1. Launch **pgAdmin 4**. The first time, it asks you to set a **master password** —
+   this is pgAdmin's own password (make one up, remember it). It is *not* the database
+   password.
+2. Look at the left tree under **Servers**:
+   - If a server (e.g. *"PostgreSQL 15"*) is already listed, **double-click it** and
+     enter the **`postgres` password you set when installing PostgreSQL** (Section 2).
+   - If **no server is listed**, add one: right-click **Servers → Register → Server**.
+     On the **General** tab give it any name (e.g. `Local`). On the **Connection** tab
+     enter: **Host** `localhost`, **Port** `5432`, **Maintenance database** `postgres`,
+     **Username** `postgres`, **Password** = the `postgres` password from Section 2.
+     Click **Save**.
+3. The tree should now expand to show **Databases**, **Login/Group Roles**, etc. If it
+   does, **pgAdmin is connected to the server** and you can do the rest. If it errors,
+   see Section 9 → Database (usually a wrong password or PostgreSQL not running).
 
 **3.1 — Create the database.** In pgAdmin's left tree, right-click *Databases → Create
 → Database*. Name it **`drdo_gis`**. Save.
@@ -277,6 +305,8 @@ connected machine: `gdalwarp -t_srs EPSG:3857 -of COG input.tif output.tif`.
 ### Database
 | Symptom | Cause → Fix |
 |---------|-------------|
+| **pgAdmin itself won't connect / no server listed** | Register the server (§3.0) with Host `localhost`, Port `5432`, user `postgres`. If it still fails, PostgreSQL isn't running — Windows: open **Services** and Start the *postgresql-x64-…* service. |
+| **Forgot the `postgres` password** | It was set when PostgreSQL was installed. If lost, it can be reset by editing `pg_hba.conf` to `trust` temporarily (ask your PostgreSQL admin) — there's no way to recover the original. |
 | `Connection refused` to `localhost:5432` | PostgreSQL not running, or wrong host/port → confirm pgAdmin connects; match its host/port in `application.properties`. |
 | `database "drdo_gis" does not exist` | Create it in pgAdmin (§3.1). |
 | `password authentication failed for user "drdo_user"` | Role/password mismatch → align `application.properties` with the pgAdmin role (§3.2). |
