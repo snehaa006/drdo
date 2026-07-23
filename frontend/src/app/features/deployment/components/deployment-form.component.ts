@@ -24,8 +24,8 @@ export class DeploymentFormComponent implements OnInit, OnChanges {
       name: ['', [Validators.maxLength(256)]],
       centerLat: [this.centerLat, [Validators.required, Validators.min(-90), Validators.max(90)]],
       centerLon: [this.centerLon, [Validators.required, Validators.min(-180), Validators.max(180)]],
-      frontageM: [200, [Validators.required, Validators.min(1)]],
-      depthM: [100, [Validators.required, Validators.min(1)]],
+      frontageKm: [0.2, [Validators.required, Validators.min(0.001)]],
+      depthKm: [0.1, [Validators.required, Validators.min(0.001)]],
       slopeThresholdDegrees: [15, [Validators.required, Validators.min(0), Validators.max(90)]],
       headingDegrees: [0, [Validators.min(0), Validators.max(360)]],
       terrainAdaptive: [true],
@@ -50,8 +50,9 @@ export class DeploymentFormComponent implements OnInit, OnChanges {
     this.formSubmit.emit({
       centerLat: v.centerLat,
       centerLon: v.centerLon,
-      frontageM: v.frontageM,
-      depthM: v.depthM,
+      // The form takes kilometres; the API/geometry engine work in metres.
+      frontageM: Math.round(v.frontageKm * 1000),
+      depthM: Math.round(v.depthKm * 1000),
       slopeThresholdDegrees: v.slopeThresholdDegrees,
       headingDegrees: v.headingDegrees,
       terrainAdaptive: v.terrainAdaptive,

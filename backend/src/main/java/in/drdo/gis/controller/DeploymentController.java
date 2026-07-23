@@ -50,6 +50,14 @@ public class DeploymentController {
         return ResponseEntity.ok(deploymentService.updateControlPoints(uid, dto));
     }
 
+    /** Live terrain analysis for edited-but-unsaved control points (nothing is persisted). */
+    @PostMapping("/{uid}/terrain-preview")
+    public ResponseEntity<TerrainAnalysisDto> previewTerrain(
+            @PathVariable String uid,
+            @Valid @RequestBody ControlPointUpdateDto dto) {
+        return ResponseEntity.ok(deploymentService.previewTerrain(uid, dto));
+    }
+
     @DeleteMapping("/{uid}")
     public ResponseEntity<Void> delete(@PathVariable String uid) {
         deploymentService.deleteDeployment(uid);

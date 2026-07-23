@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   DeploymentRequest, DeploymentResponse,
-  ControlPointUpdate
+  ControlPointUpdate, TerrainAnalysis
 } from '../models/deployment.model';
 
 @Injectable({ providedIn: 'root' })
@@ -33,6 +33,12 @@ export class DeploymentApiService {
   updateControlPoints(uid: string, update: ControlPointUpdate): Observable<DeploymentResponse> {
     return this.http.put<DeploymentResponse>(
       `${this.base}/deployments/${uid}/control-points`, update, { headers: this.headers });
+  }
+
+  /** Terrain analysis for edited-but-unsaved control points — nothing is persisted. */
+  previewTerrain(uid: string, update: ControlPointUpdate): Observable<TerrainAnalysis> {
+    return this.http.post<TerrainAnalysis>(
+      `${this.base}/deployments/${uid}/terrain-preview`, update, { headers: this.headers });
   }
 
   deleteDeployment(uid: string): Observable<void> {

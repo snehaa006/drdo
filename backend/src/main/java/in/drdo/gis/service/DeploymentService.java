@@ -10,11 +10,14 @@ import in.drdo.gis.util.GeoJsonWriter;
 import in.drdo.gis.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.io.WKTWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -173,23 +176,40 @@ public class DeploymentService {
         Deployment d = deploymentRepo.findByDeploymentUid(uid)
             .orElseThrow(() -> new DeploymentNotFoundException(uid));
 
+        // Take the incoming anchors in ring order (by point index).
+        List<ControlPointDto> incoming = dto.getControlPoints().stream()
+            .sorted(Comparator.comparingInt(cp -> cp.getPointIndex() != null ? cp.getPointIndex() : 0))
+            .collect(Collectors.toList());
+        int n = incoming.size();
+        double[] lats = new double[n];
+        double[] lons = new double[n];
+        for (int i = 0; i < n; i++) { lats[i] = incoming.get(i).getLat(); lons[i] = incoming.get(i).getLon(); }
+
+        // Re-derive smooth Catmull-Rom handles from the (possibly-dragged) anchor positions,
+        // exactly as the original geometry did (tension 0.4). The handles the client sends are
+        // stale after a drag — they were computed for the OLD anchor positions — which is what
+        // made an edited shape come out pointed instead of curved. Recomputing keeps it smooth.
+        double[][] handles = bezierEngine.generateSmoothHandles(lats, lons, 0.4);
+
         cpRepo.deleteByDeploymentId(d.getId());
-        List<ControlPoint> savedCps = dto.getControlPoints().stream().map(cpDto -> {
+        List<ControlPoint> savedCps = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            ControlPointDto cpDto = incoming.get(i);
             ControlPoint cp = ControlPoint.builder()
                 .deployment(d)
-                .pointIndex(cpDto.getPointIndex())
-                .pointType(ControlPoint.PointType.BEZIER_HANDLE)
+                .pointIndex(cpDto.getPointIndex() != null ? cpDto.getPointIndex() : i)
+                .pointType(ControlPoint.PointType.ANCHOR)
                 .lat(cpDto.getLat())
                 .lon(cpDto.getLon())
                 .geom(GeoUtils.createPoint(cpDto.getLon(), cpDto.getLat()))
-                .handleLat1(cpDto.getHandleLat1())
-                .handleLon1(cpDto.getHandleLon1())
-                .handleLat2(cpDto.getHandleLat2())
-                .handleLon2(cpDto.getHandleLon2())
+                .handleLat1(handles[i][0])
+                .handleLon1(handles[i][1])
+                .handleLat2(handles[i][2])
+                .handleLon2(handles[i][3])
                 .isLocked(cpDto.getIsLocked() != null && cpDto.getIsLocked())
                 .build();
-            return cpRepo.save(cp);
-        }).collect(Collectors.toList());
+            savedCps.add(cpRepo.save(cp));
+        }
 
         // Regenerate geometry from updated control points
         DeploymentGeometry dg = geomRepo.findByDeploymentId(d.getId()).orElse(new DeploymentGeometry());
@@ -207,11 +227,55 @@ public class DeploymentService {
         dg.setIsValid(poly.isValid());
         geomRepo.save(dg);
 
+        // Re-run terrain analysis over the EDITED footprint. Reshaping the geometry moves
+        // the deployment over different ground, so elevation / slope / roughness /
+        // suitability must be recomputed — sample the new polygon's bounding box (the same
+        // basis the original analysis used: a bbox around the footprint).
+        DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
+
+        // Keep frontage/depth in step with the reshaped footprint (its bounding-box size in
+        // metres), so the parameters reflect the actual geometry rather than the size that
+        // was originally requested at creation.
+        if (p != null) {
+            Envelope pe = poly.getEnvelopeInternal();
+            double bLat = (pe.getMinY() + pe.getMaxY()) / 2.0;
+            p.setFrontageM((pe.getMaxX() - pe.getMinX()) * 111320.0 * Math.cos(Math.toRadians(bLat)));
+            p.setDepthM((pe.getMaxY() - pe.getMinY()) * 111320.0);
+            paramsRepo.save(p);
+        }
+
+        TerrainEngine.TerrainResult tr = analyseFootprint(poly, headingOf(d), slopeThresholdOf(p));
+
+        TerrainAnalysis ta = terrainRepo.findByDeploymentId(d.getId())
+            .orElseGet(() -> TerrainAnalysis.builder().deployment(d).build());
+        ta.setMeanElevationM(tr.meanElevationM());
+        ta.setMinElevationM(tr.minElevationM());
+        ta.setMaxElevationM(tr.maxElevationM());
+        ta.setMeanSlopeDegrees(tr.meanSlopeDegrees());
+        ta.setMaxSlopeDegrees(tr.maxSlopeDegrees());
+        ta.setTerrainRoughness(tr.terrainRoughness());
+        ta.setSuitabilityScore(tr.suitabilityScore());
+        ta.setIsPlanar(tr.isPlanar());
+        ta.setSampleCount(tr.sampleCount());
+        ta = terrainRepo.save(ta);
+
+        // Replace the stored slope samples with those from the new footprint.
+        if (ta.getId() != null) slopeRepo.deleteByTerrainAnalysisId(ta.getId());
+        for (TerrainEngine.SlopeSample s : tr.slopeSamples()) {
+            slopeRepo.save(SlopeAnalysis.builder()
+                .terrainAnalysis(ta)
+                .samplePoint(GeoUtils.createPoint(s.lon(), s.lat()))
+                .elevationM(s.elevationM())
+                .slopeDegrees(s.slopeDegrees())
+                .aspectDegrees(s.aspectDegrees())
+                .slopeNs(s.slopeNs())
+                .slopeEw(s.slopeEw())
+                .build());
+        }
+
         d.setStatus(Deployment.DeploymentStatus.EDITED);
         deploymentRepo.save(d);
 
-        DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
-        TerrainAnalysis ta     = terrainRepo.findByDeploymentId(d.getId()).orElse(null);
         return toResponseDto(d, p, dg, ta);
     }
 
@@ -222,7 +286,81 @@ public class DeploymentService {
         deploymentRepo.delete(d);
     }
 
+    /**
+     * Terrain analysis for a proposed set of edited control points, WITHOUT persisting
+     * anything. Lets the UI show live terrain stats while a geometry is being dragged —
+     * it builds the same smooth footprint {@link #updateControlPoints} would save and
+     * analyses it, so the preview matches the eventual saved result.
+     */
+    // Not readOnly: terrain sampling may lazily cache a terrain_tile row the first time a
+    // DTED cell is touched. It never writes deployment / geometry / terrain-analysis data.
+    @Transactional
+    public TerrainAnalysisDto previewTerrain(String uid, ControlPointUpdateDto dto) {
+        Deployment d = deploymentRepo.findByDeploymentUid(uid)
+            .orElseThrow(() -> new DeploymentNotFoundException(uid));
+        DeploymentParameters p = paramsRepo.findByDeploymentId(d.getId()).orElse(null);
+        Polygon poly = smoothBezierFromDtos(dto.getControlPoints());
+        return toTerrainDto(analyseFootprint(poly, headingOf(d), slopeThresholdOf(p)));
+    }
+
     // ------------------------------------------------------------------ //
+
+    private double headingOf(Deployment d) {
+        return d.getHeadingDegrees() != null ? d.getHeadingDegrees() : 0.0;
+    }
+
+    private double slopeThresholdOf(DeploymentParameters p) {
+        return (p != null && p.getSlopeThresholdDegrees() != null)
+            ? p.getSlopeThresholdDegrees()
+            : gisProperties.getTerrain().getSlopeThresholdDefault();
+    }
+
+    /** Builds the smooth closed Bézier footprint from anchor DTOs (recomputing handles),
+     *  the same way an edit is persisted — used for both preview and (indirectly) save. */
+    private Polygon smoothBezierFromDtos(List<ControlPointDto> incoming) {
+        List<ControlPointDto> ordered = incoming.stream()
+            .sorted(Comparator.comparingInt(cp -> cp.getPointIndex() != null ? cp.getPointIndex() : 0))
+            .collect(Collectors.toList());
+        int n = ordered.size();
+        if (n < 3) throw new IllegalArgumentException("Need at least 3 control points for a footprint");
+        double[] lats = new double[n], lons = new double[n];
+        for (int i = 0; i < n; i++) { lats[i] = ordered.get(i).getLat(); lons[i] = ordered.get(i).getLon(); }
+        double[][] handles = bezierEngine.generateSmoothHandles(lats, lons, 0.4);
+        List<ControlPoint> cps = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            cps.add(ControlPoint.builder()
+                .pointIndex(ordered.get(i).getPointIndex() != null ? ordered.get(i).getPointIndex() : i)
+                .lat(lats[i]).lon(lons[i])
+                .handleLat1(handles[i][0]).handleLon1(handles[i][1])
+                .handleLat2(handles[i][2]).handleLon2(handles[i][3])
+                .build());
+        }
+        return bezierEngine.buildBezierPolygon(cps, gisProperties.getGeometry().getBezierSmoothingSteps());
+    }
+
+    /** Runs terrain analysis over a footprint polygon's bounding box. */
+    private TerrainEngine.TerrainResult analyseFootprint(Polygon poly, double heading, double slopeThreshold) {
+        Envelope env = poly.getEnvelopeInternal();
+        double cLat = (env.getMinY() + env.getMaxY()) / 2.0;
+        double cLon = (env.getMinX() + env.getMaxX()) / 2.0;
+        double effFrontageM = (env.getMaxX() - env.getMinX()) * 111320.0 * Math.cos(Math.toRadians(cLat));
+        double effDepthM    = (env.getMaxY() - env.getMinY()) * 111320.0;
+        return terrainEngine.analyse(cLat, cLon, effFrontageM, effDepthM, heading, slopeThreshold);
+    }
+
+    private TerrainAnalysisDto toTerrainDto(TerrainEngine.TerrainResult tr) {
+        TerrainAnalysisDto dto = new TerrainAnalysisDto();
+        dto.setMeanElevationM(tr.meanElevationM());
+        dto.setMinElevationM(tr.minElevationM());
+        dto.setMaxElevationM(tr.maxElevationM());
+        dto.setMeanSlopeDegrees(tr.meanSlopeDegrees());
+        dto.setMaxSlopeDegrees(tr.maxSlopeDegrees());
+        dto.setTerrainRoughness(tr.terrainRoughness());
+        dto.setSuitabilityScore(tr.suitabilityScore());
+        dto.setIsPlanar(tr.isPlanar());
+        dto.setSampleCount(tr.sampleCount());
+        return dto;
+    }
 
     private DeploymentResponseDto toResponseDto(Deployment d, DeploymentParameters p,
                                                  DeploymentGeometry g, TerrainAnalysis ta) {
@@ -278,6 +416,27 @@ public class DeploymentService {
             dto.setTerrainAnalysis(tad);
         }
 
+        // Control points drive the "Edit Geometry" tool in the UI; they must be
+        // delivered with every deployment so the client has draggable handles.
+        List<ControlPointDto> cps = cpRepo.findByDeploymentIdOrderByPointIndexAsc(d.getId())
+            .stream().map(this::toControlPointDto).collect(Collectors.toList());
+        dto.setControlPoints(cps);
+
+        return dto;
+    }
+
+    private ControlPointDto toControlPointDto(ControlPoint cp) {
+        ControlPointDto dto = new ControlPointDto();
+        dto.setId(cp.getId());
+        dto.setPointIndex(cp.getPointIndex());
+        dto.setPointType(cp.getPointType() != null ? cp.getPointType().name() : null);
+        dto.setLat(cp.getLat());
+        dto.setLon(cp.getLon());
+        dto.setHandleLat1(cp.getHandleLat1());
+        dto.setHandleLon1(cp.getHandleLon1());
+        dto.setHandleLat2(cp.getHandleLat2());
+        dto.setHandleLon2(cp.getHandleLon2());
+        dto.setIsLocked(cp.getIsLocked());
         return dto;
     }
 }

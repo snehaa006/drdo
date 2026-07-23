@@ -21,6 +21,7 @@ export interface DeploymentResponse {
   parameters?: DeploymentParameters;
   geometry?: DeploymentGeometry;
   terrainAnalysis?: TerrainAnalysis;
+  controlPoints?: ControlPoint[];
   createdAt: string;
   updatedAt: string;
 }

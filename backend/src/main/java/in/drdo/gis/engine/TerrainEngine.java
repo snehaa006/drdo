@@ -173,11 +173,14 @@ public class TerrainEngine {
         if (n == 0) { elevMin = elevMax = slopeMax = 0.0; }
 
         double roughness = computeRoughness(elevGrid);
-        // Core rule: flat terrain (mean slope below the requested threshold and
-        // low roughness) → ellipse; otherwise → adaptive Bézier.
+        // Core rule: flat terrain (slope within the requested threshold) → ellipse;
+        // otherwise → adaptive Bézier. The decision is driven by the SLOPE threshold the
+        // user set — the terrain is planar as long as no slope exceeds it. Roughness is
+        // still reported and feeds the suitability score, but it no longer gates this: a
+        // fixed roughness cap wrongly flipped large-but-gentle footprints to non-planar
+        // (roughness naturally grows with area) even when slopes were far under threshold.
         double planarSlopeLimit = slopeThresholdDeg > 0 ? slopeThresholdDeg : PLANAR_SLOPE_THRESHOLD;
-        boolean isPlanar = meanSlope < planarSlopeLimit
-                        && roughness < PLANAR_ROUGHNESS_MAX_M;
+        boolean isPlanar = slopeMax < planarSlopeLimit;
         double suitability = computeSuitabilityScore(meanSlope, roughness, planarSlopeLimit);
 
         return new TerrainResult(
